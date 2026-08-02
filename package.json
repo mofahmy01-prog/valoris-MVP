@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "risk:demo": "tsx scripts/risk-demo.ts"
+    "risk:demo": "tsx scripts/risk-demo.ts",
+    "verify:m1": "tsx scripts/verify-m1.ts"
   },
   "dependencies": {
     "next": "^15.5.22",
