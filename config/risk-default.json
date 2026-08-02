@@ -1,0 +1,794 @@
+{
+  "modelVersion": "valoris-risk-0.1.0",
+  "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. Every value below is illustrative and unreviewed. No external guideline validates this model. ADA and British Thoracic Society material may inform individual thresholds; they do not validate Valoris.",
+  "parameters": {
+    "stale_after_sec": {
+      "value": 60,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Reading older than this is treated as stale. Placeholder pending occupational physician review.",
+      "min": 10,
+      "max": 300,
+      "editable": true
+    },
+    "missing_after_sec": {
+      "value": 120,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Reading older than this is treated as absent entirely. Placeholder pending occupational physician review.",
+      "min": 20,
+      "max": 600,
+      "editable": true
+    },
+
+    "band_safe_max_score": {
+      "value": 25,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of the SAFE band. Placeholder pending occupational physician review.",
+      "min": 5,
+      "max": 45,
+      "editable": true
+    },
+    "band_caution_max_score": {
+      "value": 50,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of the CAUTION band. CAUTION exists to create lead time before CRITICAL.",
+      "min": 20,
+      "max": 70,
+      "editable": true
+    },
+    "band_high_max_score": {
+      "value": 75,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of the HIGH band; above this the composite reads CRITICAL.",
+      "min": 40,
+      "max": 95,
+      "editable": true
+    },
+
+    "weight_physiological": {
+      "value": 0.4,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Composite weight for the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "weight_environmental": {
+      "value": 0.3,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Composite weight for the environmental subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "weight_proximity": {
+      "value": 0.2,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Composite weight for the proximity subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "weight_profile": {
+      "value": 0.1,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Composite weight for the profile vulnerability subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+
+    "override_spo2_critical_pct": {
+      "value": 88,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Baseline SpO2 hard-override threshold for a person with no respiratory risk. Placeholder pending occupational physician review.",
+      "min": 80,
+      "max": 95,
+      "editable": true
+    },
+    "override_spo2_confirm_readings": {
+      "value": 3,
+      "unit": "readings",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Consecutive breaching readings required to confirm the SpO2 override and reject single-sample artefacts.",
+      "min": 1,
+      "max": 10,
+      "editable": true
+    },
+    "override_core_temp_critical_c": {
+      "value": 39.5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Estimated core temperature hard-override threshold for average heat tolerance. Core temperature here is ESTIMATED, never measured.",
+      "min": 38,
+      "max": 41,
+      "editable": true
+    },
+    "override_hr_fraction_of_max": {
+      "value": 0.97,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of age-adjusted maximum heart rate at or above which the override fires.",
+      "min": 0.85,
+      "max": 1,
+      "editable": true
+    },
+    "override_scba_pressure_pct": {
+      "value": 20,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "SCBA cylinder pressure at or below which the override fires. Unknown pressure is treated as worst case.",
+      "min": 5,
+      "max": 50,
+      "editable": true
+    },
+    "override_escape_blocked_fire_distance_m": {
+      "value": 150,
+      "unit": "m",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "A blocked escape route fires the override when the fire front is at or inside this distance.",
+      "min": 25,
+      "max": 1000,
+      "editable": true
+    },
+
+    "phys_weight_hr": {
+      "value": 0.3,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of heart rate within the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "phys_weight_spo2": {
+      "value": 0.3,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of SpO2 deviation within the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "phys_weight_core_temp": {
+      "value": 0.2,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of estimated core temperature within the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "phys_weight_fatigue": {
+      "value": 0.12,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of the fatigue index within the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "phys_weight_time_on_task": {
+      "value": 0.08,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of continuous time on task within the physiological subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "hr_max_age_constant_bpm": {
+      "value": 220,
+      "unit": "bpm",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Constant in the age-adjusted maximum heart rate estimate (220 minus age). A crude population formula, not an individual measurement.",
+      "min": 190,
+      "max": 230,
+      "editable": true
+    },
+    "hr_fraction_low": {
+      "value": 0.6,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of age-adjusted max HR at or below which heart rate contributes nothing.",
+      "min": 0.3,
+      "max": 0.9,
+      "editable": true
+    },
+    "hr_fraction_high": {
+      "value": 0.95,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of age-adjusted max HR at or above which heart rate contributes the maximum.",
+      "min": 0.7,
+      "max": 1.1,
+      "editable": true
+    },
+    "spo2_deviation_low_pct": {
+      "value": 1,
+      "unit": "percentage points",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Deviation below the individual's own SpO2 baseline at or under which nothing is contributed.",
+      "min": 0,
+      "max": 5,
+      "editable": true
+    },
+    "spo2_deviation_high_pct": {
+      "value": 8,
+      "unit": "percentage points",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Deviation below the individual's own SpO2 baseline at or over which the maximum is contributed.",
+      "min": 2,
+      "max": 20,
+      "editable": true
+    },
+    "spo2_deviation_min_span_pct": {
+      "value": 0.5,
+      "unit": "percentage points",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Floor applied after respiratory-risk tightening so the SpO2 ramp never collapses to zero width.",
+      "min": 0.1,
+      "max": 3,
+      "editable": true
+    },
+    "core_temp_low_c": {
+      "value": 37.5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Estimated core temperature at or below which nothing is contributed, for average heat tolerance.",
+      "min": 36,
+      "max": 38.5,
+      "editable": true
+    },
+    "core_temp_high_c": {
+      "value": 39.5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Estimated core temperature at or above which the maximum is contributed, for average heat tolerance.",
+      "min": 38,
+      "max": 41,
+      "editable": true
+    },
+    "fatigue_low_pct": {
+      "value": 30,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Effective fatigue index at or below which nothing is contributed.",
+      "min": 0,
+      "max": 60,
+      "editable": true
+    },
+    "fatigue_high_pct": {
+      "value": 90,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Effective fatigue index at or above which the maximum is contributed.",
+      "min": 40,
+      "max": 100,
+      "editable": true
+    },
+    "time_on_task_low_min": {
+      "value": 15,
+      "unit": "min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Continuous time on task at or below which nothing is contributed.",
+      "min": 0,
+      "max": 60,
+      "editable": true
+    },
+    "time_on_task_high_min": {
+      "value": 45,
+      "unit": "min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Continuous time on task at or above which the maximum is contributed.",
+      "min": 10,
+      "max": 180,
+      "editable": true
+    },
+
+    "env_weight_co": {
+      "value": 0.4,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of carbon monoxide within the environmental subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "env_weight_pm25": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of PM2.5 within the environmental subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "env_weight_heat": {
+      "value": 0.35,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of ambient heat within the environmental subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "co_low_ppm": {
+      "value": 25,
+      "unit": "ppm",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Ambient CO at or below which nothing is contributed, before cumulative-exposure tightening.",
+      "min": 5,
+      "max": 100,
+      "editable": true
+    },
+    "co_high_ppm": {
+      "value": 200,
+      "unit": "ppm",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Ambient CO at or above which the maximum is contributed, before cumulative-exposure tightening.",
+      "min": 50,
+      "max": 1500,
+      "editable": true
+    },
+    "pm25_low_ugm3": {
+      "value": 35,
+      "unit": "ug/m3",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "PM2.5 at or below which nothing is contributed, before cumulative-exposure tightening.",
+      "min": 5,
+      "max": 150,
+      "editable": true
+    },
+    "pm25_high_ugm3": {
+      "value": 250,
+      "unit": "ug/m3",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "PM2.5 at or above which the maximum is contributed, before cumulative-exposure tightening.",
+      "min": 50,
+      "max": 1000,
+      "editable": true
+    },
+    "ambient_temp_low_c": {
+      "value": 30,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Humidity-adjusted ambient temperature at or below which nothing is contributed, for average heat tolerance.",
+      "min": 15,
+      "max": 45,
+      "editable": true
+    },
+    "ambient_temp_high_c": {
+      "value": 60,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Humidity-adjusted ambient temperature at or above which the maximum is contributed, for average heat tolerance.",
+      "min": 35,
+      "max": 120,
+      "editable": true
+    },
+    "humidity_reference_pct": {
+      "value": 50,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Relative humidity above which evaporative cooling is penalised.",
+      "min": 20,
+      "max": 90,
+      "editable": true
+    },
+    "humidity_heat_penalty_c_per_10pct": {
+      "value": 1,
+      "unit": "C per 10%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Degrees added to effective ambient temperature per 10 percentage points of humidity above the reference. A crude stand-in for a heat index.",
+      "min": 0,
+      "max": 4,
+      "editable": true
+    },
+    "scba_inhalation_protection_factor": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Multiplier applied to inhalation hazards (CO, PM2.5) while the wearer is on air. Never zero: seal integrity is not verifiable by this system.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+
+    "prox_weight_fire_distance": {
+      "value": 0.4,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of distance to fire front within the proximity subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prox_weight_escape_route": {
+      "value": 0.35,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of escape route status within the proximity subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prox_weight_scba": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of remaining SCBA pressure within the proximity subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "fire_front_high_distance_m": {
+      "value": 50,
+      "unit": "m",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Distance to fire front at or below which the maximum is contributed.",
+      "min": 5,
+      "max": 300,
+      "editable": true
+    },
+    "fire_front_low_distance_m": {
+      "value": 500,
+      "unit": "m",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Distance to fire front at or above which nothing is contributed.",
+      "min": 50,
+      "max": 5000,
+      "editable": true
+    },
+    "escape_route_degraded_score": {
+      "value": 45,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Contribution of a degraded escape route.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "escape_route_blocked_score": {
+      "value": 100,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Contribution of a blocked escape route.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "scba_pressure_low_score_pct": {
+      "value": 60,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "SCBA pressure at or above which nothing is contributed.",
+      "min": 30,
+      "max": 100,
+      "editable": true
+    },
+    "scba_pressure_high_score_pct": {
+      "value": 15,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "SCBA pressure at or below which the maximum is contributed.",
+      "min": 0,
+      "max": 40,
+      "editable": true
+    },
+
+    "prof_weight_respiratory": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of respiratory risk within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prof_weight_heat_tolerance": {
+      "value": 0.15,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of heat tolerance within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prof_weight_fitness": {
+      "value": 0.15,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of fitness within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prof_weight_prev_shift": {
+      "value": 0.15,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of previous shift hours within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prof_weight_conditions": {
+      "value": 0.15,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of declared condition count within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "prof_weight_cumulative_exposure": {
+      "value": 0.15,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of cumulative CO and heat exposure indices within the profile subscore.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "resp_risk_score_none": {
+      "value": 0,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for no declared respiratory risk.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "resp_risk_score_mild": {
+      "value": 30,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for mild respiratory risk.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "resp_risk_score_moderate": {
+      "value": 60,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for moderate respiratory risk.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "resp_risk_score_high": {
+      "value": 90,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for high respiratory risk.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "heat_tolerance_score_low": {
+      "value": 70,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for low heat tolerance.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "heat_tolerance_score_avg": {
+      "value": 35,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for average heat tolerance.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "heat_tolerance_score_high": {
+      "value": 0,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for high heat tolerance.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "fitness_score_low": {
+      "value": 70,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for low fitness.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "fitness_score_moderate": {
+      "value": 35,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for moderate fitness.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "fitness_score_high": {
+      "value": 0,
+      "unit": "score",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution for high fitness.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+    "prev_shift_low_h": {
+      "value": 8,
+      "unit": "h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Previous shift length at or below which nothing is contributed.",
+      "min": 0,
+      "max": 16,
+      "editable": true
+    },
+    "prev_shift_high_h": {
+      "value": 14,
+      "unit": "h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Previous shift length at or above which the maximum is contributed.",
+      "min": 4,
+      "max": 30,
+      "editable": true
+    },
+    "condition_score_per_condition": {
+      "value": 25,
+      "unit": "score per condition",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Profile contribution per declared condition, capped at the maximum. A count is a poor proxy for clinical severity and is flagged for review.",
+      "min": 0,
+      "max": 100,
+      "editable": true
+    },
+
+    "resp_risk_spo2_alert_shift_pct_per_level": {
+      "value": 1,
+      "unit": "percentage points per level",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Per respiratory-risk level (mild 1, moderate 2, high 3), SpO2 alerting fires earlier: the override threshold rises and the deviation ramp tightens.",
+      "min": 0,
+      "max": 3,
+      "editable": true
+    },
+    "heat_tolerance_core_temp_shift_c": {
+      "value": 0.5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Core temperature limits shift down by this amount for low heat tolerance and up by it for high heat tolerance.",
+      "min": 0,
+      "max": 1.5,
+      "editable": true
+    },
+    "heat_tolerance_ambient_shift_c": {
+      "value": 2,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Ambient heat limits shift down by this amount for low heat tolerance and up by it for high heat tolerance.",
+      "min": 0,
+      "max": 8,
+      "editable": true
+    },
+    "prev_shift_fatigue_pct_per_hour": {
+      "value": 1.5,
+      "unit": "% per h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue index carried into this incident per hour of the previous shift.",
+      "min": 0,
+      "max": 5,
+      "editable": true
+    },
+    "cumulative_co_tightening_frac": {
+      "value": 0.3,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "At a cumulative CO exposure index of 1.0, CO and PM2.5 thresholds tighten by this fraction.",
+      "min": 0,
+      "max": 0.8,
+      "editable": true
+    },
+    "cumulative_heat_tightening_max_c": {
+      "value": 5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "At a cumulative heat exposure index of 1.0, ambient heat limits tighten by this many degrees.",
+      "min": 0,
+      "max": 15,
+      "editable": true
+    }
+  }
+}

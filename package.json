@@ -1,0 +1,38 @@
+{
+  "name": "valoris",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "risk:demo": "tsx scripts/risk-demo.ts"
+  },
+  "dependencies": {
+    "next": "^15.5.22",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "3.25.76",
+    "zustand": "5.0.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.36.0",
+    "@tailwindcss/postcss": "4.1.13",
+    "@types/node": "22.18.6",
+    "@types/react": "19.1.13",
+    "@types/react-dom": "19.1.9",
+    "eslint": "9.36.0",
+    "fast-check": "3.23.2",
+    "postcss": "8.5.6",
+    "tailwindcss": "4.1.13",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.44.1",
+    "vitest": "3.2.4"
+  }
+}
