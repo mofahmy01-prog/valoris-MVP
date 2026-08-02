@@ -140,6 +140,27 @@ false alarms, and it will never suppress a real one for want of history.
 **Needs review:** whether fail-safe-to-alert is the right default, or whether an
 unconfirmable breach should raise a `check_sensor` prompt instead.
 
+### 13. Projected values for dropped sensors (planned, Milestone 5)
+
+When a sensor stops reporting, Valoris will project that channel forward from the
+firefighter's own recent measured readings rather than scoring it as worst case.
+The governing rule is that **an estimate may only move in the dangerous
+direction**: the imputed value is the worse of the last measured value and its
+recent measured slope extrapolated forward.
+
+This is a clinical claim, not just an engineering one. It asserts that a
+deterioration observed over the preceding window is more likely to continue than
+to reverse, over a short horizon, under continuing exertion.
+
+**Needs review:** whether that assumption holds for each channel; the minimum
+history depth and maximum projection horizon per channel; and whether a projected
+value may fire a hard override at all, or only raise the band short of
+`CRITICAL`.
+
+Explicitly **out of scope** and not to be built without separate review:
+estimating a missing physiological value from ambient conditions, workload,
+proximity or crewmates' readings. That would be an invented physiological model.
+
 ## Sign-off checklist
 
 No item below may be ticked by an engineer.
@@ -158,6 +179,7 @@ No item below may be ticked by an engineer.
 | 10 | Heat index method | | | |
 | 11 | Composite weights and band cut-offs | | | |
 | 12 | SpO2 override confirmation and fail-safe default | | | |
+| 13 | Projected values for dropped sensors, and whether they may fire an override | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and

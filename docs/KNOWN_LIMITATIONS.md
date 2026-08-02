@@ -48,6 +48,8 @@ report. The web app currently renders only the model assumptions table.
    sensor drops out as a red flag, not as improvement.** This is covered by a
    named test in `lib/risk/risk.test.ts`.
 
+   *Planned resolution — see "Sensor dropout projection" below.*
+
 9. **The engine is stateless.** It has no memory between calls. Trends,
    confirmation windows and latching all have to be supplied by the caller.
    The SpO2 three-reading confirmation is passed in as `recentSpo2Pct`; if it is
@@ -76,6 +78,47 @@ report. The web app currently renders only the model assumptions table.
 
 15. **Condition count, not severity.** Four mild conditions score the same as one
     severe one.
+
+## Sensor dropout projection — decided, not yet built
+
+Today a channel that stops reporting is scored as **worst case**. That is safe
+but uninformative, and it is the cause of limitations 6 and 8 above.
+
+**Decision (agreed before Milestone 2):** a channel that goes dark will instead
+be *projected* from that firefighter's own recent measured readings, under one
+governing rule:
+
+> **An estimate may only ever move in the dangerous direction.**
+
+The imputed value is the worse of the last measured value and that value
+extrapolated along its recent measured slope. A rising core temperature keeps
+rising; a falling heart rate is held at its last measured value rather than
+assumed to keep recovering. An estimate can therefore never improve a
+firefighter's picture — it can only continue a deterioration that was actually
+being measured.
+
+Scope and constraints:
+
+- **Own history only.** Projection uses only that individual's own prior
+  measured readings. Valoris will *not* estimate a missing physiological value
+  from ambient temperature, workload, proximity or crewmates' readings. That
+  would mean inventing an unvalidated physiological model, and it was explicitly
+  ruled out.
+- **Guarded like `timeToDangerMin`.** Minimum history depth, consistent slope
+  sign across the window, and a decay horizon after which the projection expires
+  back to worst case. A projection may not run indefinitely on a stale slope.
+- **Never rendered as a measurement.** Projected values carry their own input
+  state and glyph, distinct from measured and stale. Confidence still drops.
+- **Still never `SAFE`.** A projected critical vital cannot produce a `SAFE`
+  band.
+- **No new scoring path.** Projection feeds the existing `assessRisk`, using the
+  same least-squares machinery as Milestone 5's forecasting.
+
+**Where it lands:** Milestone 5, alongside forecasting. Milestone 2's
+append-only `Observation` table is the rolling history it reads from, so no
+engine change is needed before then.
+
+**Until it lands**, dropouts behave as described in limitations 6 and 8.
 
 ## Scope
 
