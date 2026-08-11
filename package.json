@@ -11,10 +11,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "seed": "tsx prisma/seed.ts",
     "risk:demo": "tsx scripts/risk-demo.ts",
-    "verify:m1": "tsx scripts/verify-m1.ts"
+    "verify:m1": "tsx scripts/verify-m1.ts",
+    "verify:m2": "tsx scripts/verify-m2.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@prisma/client": "^6.16.3",
     "next": "^15.5.22",
     "react": "19.1.1",
     "react-dom": "19.1.1",
@@ -30,6 +36,7 @@
     "eslint": "9.36.0",
     "fast-check": "3.23.2",
     "postcss": "8.5.6",
+    "prisma": "^6.16.3",
     "tailwindcss": "4.1.13",
     "tsx": "4.20.5",
     "typescript": "5.9.2",

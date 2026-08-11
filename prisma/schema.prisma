@@ -1,0 +1,289 @@
+// Valoris — SIMULATION MODE, NOT FOR OPERATIONAL USE.
+//
+// Ten tables. UUID primary keys. All timestamps UTC. Units in every numeric
+// field name. `Observation` and `AuditEvent` are append-only — enforced by
+// SQLite triggers in the migration, not only by convention.
+//
+// SQLite has no enum support, so constrained strings are validated by Zod at
+// the API boundary and by named unions in lib/db/enums.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organisation {
+  id           String   @id @default(uuid())
+  name         String
+  createdAtUtc DateTime @default(now())
+
+  firefighters FirefighterProfile[]
+  incidents    Incident[]
+}
+
+model FirefighterProfile {
+  id             String @id @default(uuid())
+  organisationId String
+  callsign       String
+
+  ageYears                    Int
+  fitness                     String // low | moderate | high
+  restingHrBpm                Int
+  spo2BaselinePct             Int
+  conditionsJson              String // JSON string[]
+  respiratoryRisk             String // none | mild | moderate | high
+  heatTolerance               String // low | avg | high
+  prevShiftHours              Float
+  cumulativeCoExposureIndex   Float
+  cumulativeHeatExposureIndex Float
+
+  createdAtUtc DateTime @default(now())
+  updatedAtUtc DateTime @updatedAt
+
+  organisation Organisation @relation(fields: [organisationId], references: [id])
+  deployments  Deployment[]
+
+  @@unique([organisationId, callsign])
+  @@index([organisationId])
+}
+
+model Incident {
+  id             String @id @default(uuid())
+  organisationId String
+  name           String
+  status         String // created | running | stopped
+  scenarioKey    String
+
+  // Which fire-front provider is supplying the perimeter. The risk engine
+  // never reads this — it only ever sees a distance and a confidence.
+  fireProviderKey String
+
+  centroidLat Float
+  centroidLng Float
+
+  modelVersion String
+  configHash   String
+
+  createdAtUtc DateTime  @default(now())
+  startedAtUtc DateTime?
+  stoppedAtUtc DateTime?
+
+  organisation    Organisation           @relation(fields: [organisationId], references: [id])
+  crews           Crew[]
+  deployments     Deployment[]
+  observations    Observation[]
+  riskAssessments RiskAssessmentRecord[]
+  recommendations Recommendation[]
+  commanderActions CommanderAction[]
+  auditEvents     AuditEvent[]
+
+  @@index([organisationId])
+}
+
+model Crew {
+  id         String @id @default(uuid())
+  incidentId String
+  name       String
+
+  incident    Incident     @relation(fields: [incidentId], references: [id])
+  deployments Deployment[]
+
+  @@unique([incidentId, name])
+  @@index([incidentId])
+}
+
+model Deployment {
+  id                   String @id @default(uuid())
+  incidentId           String
+  crewId               String
+  firefighterProfileId String
+
+  sector         String?
+  assignedAtUtc  DateTime  @default(now())
+  releasedAtUtc  DateTime?
+
+  incident        Incident               @relation(fields: [incidentId], references: [id])
+  crew            Crew                   @relation(fields: [crewId], references: [id])
+  firefighter     FirefighterProfile     @relation(fields: [firefighterProfileId], references: [id])
+  observations    Observation[]
+  riskAssessments RiskAssessmentRecord[]
+  recommendations Recommendation[]
+
+  @@unique([incidentId, firefighterProfileId])
+  @@index([incidentId])
+  @@index([crewId])
+}
+
+/// Append-only. One row per firefighter per simulator tick. Every sensor
+/// channel carries its own UTC timestamp so the staleness rules in
+/// lib/risk/engine.ts can work per channel rather than per row.
+model Observation {
+  id            String   @id @default(uuid())
+  incidentId    String
+  deploymentId  String
+  recordedAtUtc DateTime
+  source        String // simulated_wearable | simulated_scba | simulated_atmos | simulated_position | commander
+
+  // --- Vitals ---
+  hrBpm          Float?
+  spo2Pct        Float?
+  coreTempC      Float? // ESTIMATED, never measured
+  respRatePerMin Float?
+  fatiguePct     Float?
+  hydrationPct   Float?
+  fallDetected   Boolean @default(false)
+
+  hrUpdatedAtUtc        DateTime?
+  spo2UpdatedAtUtc      DateTime?
+  coreTempUpdatedAtUtc  DateTime?
+  respRateUpdatedAtUtc  DateTime?
+  fatigueUpdatedAtUtc   DateTime?
+  hydrationUpdatedAtUtc DateTime?
+
+  // --- Environment ---
+  ambientTempC Float?
+  humidityPct  Float?
+  coPpm        Float?
+  pm25UgM3     Float?
+  windSpeedMs  Float?
+  windDirDeg   Float?
+
+  ambientTempUpdatedAtUtc DateTime?
+  humidityUpdatedAtUtc    DateTime?
+  coUpdatedAtUtc          DateTime?
+  pm25UpdatedAtUtc        DateTime?
+  windSpeedUpdatedAtUtc   DateTime?
+  windDirUpdatedAtUtc     DateTime?
+
+  // --- Position and equipment ---
+  lat                  Float
+  lng                  Float
+  distanceToFireFrontM Float?
+  distanceToSafeZoneM  Float?
+  escapeRouteStatus    String // clear | degraded | blocked
+  scbaPressurePct      Float?
+  scbaOnAir            Boolean @default(true)
+  timeOnTaskMin        Float
+  manualMaydayActive   Boolean @default(false)
+
+  // Provenance of the fire front this observation's distance was measured
+  // against, so a stored distance can always be traced to its source.
+  fireProviderKey       String?
+  fireFrontConfidence   String?
+
+  incident        Incident               @relation(fields: [incidentId], references: [id])
+  deployment      Deployment             @relation(fields: [deploymentId], references: [id])
+  riskAssessments RiskAssessmentRecord[]
+
+  @@index([incidentId, recordedAtUtc])
+  @@index([deploymentId, recordedAtUtc])
+}
+
+model RiskAssessmentRecord {
+  id            String   @id @default(uuid())
+  incidentId    String
+  deploymentId  String
+  observationId String
+  calculatedAtUtc DateTime
+
+  scoreValue Float
+  band       String // UNKNOWN | SAFE | CAUTION | HIGH | CRITICAL
+
+  physiologicalSubscore Float
+  environmentalSubscore Float
+  proximitySubscore     Float
+  profileSubscore       Float
+
+  hardOverride            Boolean
+  hardOverrideReasonsJson String // JSON string[]
+  topDriversJson          String // JSON string[]
+  explanation             String
+
+  confidence          String // high | medium | low
+  staleInputsJson     String // JSON string[]
+  missingInputsJson   String // JSON string[]
+  oldestReadingAgeSec Int
+  dataQualityNote     String
+
+  modelVersion String
+  configHash   String
+
+  incident        Incident         @relation(fields: [incidentId], references: [id])
+  deployment      Deployment       @relation(fields: [deploymentId], references: [id])
+  observation     Observation      @relation(fields: [observationId], references: [id])
+  recommendations Recommendation[]
+
+  @@index([incidentId, calculatedAtUtc])
+  @@index([deploymentId, calculatedAtUtc])
+}
+
+model Recommendation {
+  id                     String  @id @default(uuid())
+  incidentId             String
+  deploymentId           String
+  riskAssessmentRecordId String?
+
+  // monitor | rotate | withdraw | preposition_relief | restore_scba |
+  // check_sensor | medical_review | insufficient_data
+  type           String
+  priorityRank   Int
+  rationale      String
+  suggestedAction String
+  alternativesJson String // JSON string[]
+  confidence     String // high | medium | low
+
+  // open | acknowledged | accepted | rejected | overridden | expired
+  status String @default("open")
+
+  createdAtUtc  DateTime  @default(now())
+  expiresAtUtc  DateTime
+  resolvedAtUtc DateTime?
+
+  incident         Incident              @relation(fields: [incidentId], references: [id])
+  deployment       Deployment            @relation(fields: [deploymentId], references: [id])
+  riskAssessment   RiskAssessmentRecord? @relation(fields: [riskAssessmentRecordId], references: [id])
+  commanderActions CommanderAction[]
+
+  @@index([incidentId, status])
+  @@index([deploymentId])
+}
+
+model CommanderAction {
+  id               String  @id @default(uuid())
+  incidentId       String
+  recommendationId String?
+
+  action     String // acknowledge | accept | reject | override
+  reasonText String? // REQUIRED for reject and override — enforced in code and by a DB check
+  actorLabel String
+
+  createdAtUtc DateTime @default(now())
+
+  incident       Incident        @relation(fields: [incidentId], references: [id])
+  recommendation Recommendation? @relation(fields: [recommendationId], references: [id])
+
+  @@index([incidentId, createdAtUtc])
+  @@index([recommendationId])
+}
+
+/// Append-only. No update or delete path is exposed anywhere in the codebase,
+/// and SQLite triggers reject both.
+model AuditEvent {
+  id           String   @id @default(uuid())
+  incidentId   String?
+  occurredAtUtc DateTime @default(now())
+
+  eventType  String
+  actorLabel String
+  summary    String
+  detailJson String // JSON object
+
+  incident Incident? @relation(fields: [incidentId], references: [id])
+
+  @@index([incidentId, occurredAtUtc])
+  @@index([eventType])
+}

@@ -6,9 +6,39 @@ An honest list. Current as of Milestone 1 (risk engine only).
 
 ## Not built yet
 
-Milestones 2–6 are not started. There is no database, no API, no simulator, no
-map, no dashboard, no forecasting, no recommendations, no audit log and no
-report. The web app currently renders only the model assumptions table.
+Milestones 3–6 are not started. There is no simulator, no map, no commander
+dashboard, no forecasting, no recommendation *generation* and no post-incident
+report. The web app renders only the model assumptions table.
+
+Recommendation routes exist and enforce the reason rule, but nothing creates
+recommendations yet — that is Milestone 6.
+
+## Fire behaviour
+
+**Valoris does not model fire behaviour and will not.** Fire spread modelling is
+a mature field with funded tools — FARSITE, Phoenix RapidFire, satellite
+perimeter products — that agencies already use. Valoris consumes a perimeter
+from one of those and works out what it means for each individual firefighter.
+
+Three providers exist behind one interface:
+
+| Provider | State | Honest description |
+|---|---|---|
+| `GeometricSpreadProvider` | Available | A wind-driven ellipse. A **drawing**, not a model. No fuel, terrain, moisture or validation. Confidence is hard-capped at `low` and `isFireBehaviourPrediction` is hard-coded `false`. Demo only. |
+| `FarsiteAdapter` | Not implemented | A stub that always refuses. Ships no FARSITE client, because writing a speculative client for a system we have no access to would be inventing a vendor integration. |
+| `HistoricalPerimeterProvider` | Needs data | Reads real observed perimeters from an operator-supplied GeoJSON file. Bundles no data, calls no remote service, and refuses rather than substituting invented geometry. Never extrapolates: asked for a future time it returns the last observed perimeter with confidence `unknown`. |
+
+Limitations that follow:
+
+19. **The demo's fire front is not a prediction.** Every surface showing a
+    geometric front must carry its provenance string. A `low` confidence front
+    still produces a precise-looking distance in metres, which is more precision
+    than the underlying shape deserves.
+20. **Distance is computed on a local equirectangular projection.** Fine over the
+    few kilometres an incident spans; wrong for very large fires or near the poles.
+21. **A firefighter inside the perimeter reports zero separation, not a negative
+    distance.** Deliberate — but it means "0 m" conflates "at the edge" with
+    "well inside the fire area". Read the position on the map, not just the number.
 
 ## Fundamental
 

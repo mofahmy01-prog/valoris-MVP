@@ -22,19 +22,48 @@ inform an individual threshold; it does not validate Valoris.
 Every threshold ships as `illustrative` / `unreviewed` and stays that way until an
 occupational physician signs off. See [docs/CLINICAL_ASSUMPTIONS.md](docs/CLINICAL_ASSUMPTIONS.md).
 
-## Current state — Milestone 1 of 6
+## What Valoris does not do: model fire behaviour
+
+Fire spread modelling is solved. FARSITE, Phoenix RapidFire and satellite
+perimeter products exist, and fire agencies already use them. Competing there
+would be a losing argument.
+
+**Valoris consumes a fire prediction and works out what it means for each
+individual firefighter.** That translation is the product.
+
+The `FireFrontProvider` interface has three implementations:
+
+- **`GeometricSpreadProvider`** — a wind-driven ellipse for the demo. A drawing,
+  not a model. Confidence is capped at `low` and it reports
+  `isFireBehaviourPrediction: false`, permanently.
+- **`FarsiteAdapter`** — an interface stub for a future pilot. Always refuses.
+  No speculative client is shipped.
+- **`HistoricalPerimeterProvider`** — reads real observed perimeters from a
+  GeoJSON file you supply (e.g. an export from
+  [NIFC Open Data](https://data-nifc.opendata.arcgis.com/)). No data is bundled
+  and no remote service is called.
+
+The risk engine never learns which provider is active. It receives a distance in
+metres and a confidence, and nothing more. A test enforces that boundary.
+
+## Current state — Milestone 2 of 6
 
 Built:
 
-- `lib/risk/` — the deterministic risk engine, as pure TypeScript with no React,
-  no database and no framework imports
+- `lib/risk/` — the deterministic risk engine, pure TypeScript with no React, no
+  database and no framework imports
 - `config/risk-default.json` — 78 named, bounded, provenance-tagged parameters
-- `lib/risk/risk.test.ts` — property tests and unit tests
-- `scripts/risk-demo.ts` — runs the engine standalone, no app required
-- A minimal web page showing the model assumptions table
+- `lib/fire/` — the fire front abstraction and its three providers
+- `prisma/schema.prisma` — ten tables, UUID keys, UTC timestamps, units in field
+  names, `Observation` and `AuditEvent` append-only **enforced by SQLite
+  triggers**
+- Fifteen API routes under `/app/api`, every body Zod-validated
+- 64 tests, including six fast-check properties
 
-Not built: database, API, simulator, map, commander dashboard, forecasting,
-recommendations, audit log, post-incident report. Those are Milestones 2–6.
+Not built: simulator, map, commander dashboard, forecasting, recommendation
+generation, post-incident report. Those are Milestones 3–6. The recommendation
+action routes exist and enforce the reason rule; nothing creates recommendations
+yet.
 
 ## Setup
 
@@ -43,11 +72,53 @@ npm install
 ```
 
 ```bash
+npx prisma migrate dev
+```
+
+```bash
+npm run seed
+```
+
+```bash
 npm run dev
 ```
 
-Milestones 2+ will add `npx prisma migrate dev` and `npm run seed` to that
-sequence.
+## API
+
+```
+POST   /api/incidents
+GET    /api/incidents/[id]
+POST   /api/incidents/[id]/start
+POST   /api/incidents/[id]/stop
+POST   /api/incidents/[id]/observations
+GET    /api/incidents/[id]/snapshot
+GET    /api/incidents/[id]/risks
+GET    /api/incidents/[id]/stream            ← Server-Sent Events
+GET    /api/incidents/[id]/recommendations
+POST   /api/recommendations/[id]/acknowledge
+POST   /api/recommendations/[id]/accept
+POST   /api/recommendations/[id]/reject       ← reason required, 400 if empty
+POST   /api/recommendations/[id]/override     ← reason required, 400 if empty
+GET    /api/audit
+GET    /api/health
+```
+
+The reason requirement on reject and override is enforced three times: by Zod on
+the request body, by an assertion in the shared action handler, and by a SQLite
+trigger on insert. A UI bug, a direct API call and a direct Prisma call all fail.
+
+## Verify it yourself
+
+```bash
+npm run verify:m1
+```
+
+```bash
+npm run verify:m2
+```
+
+`verify:m1` runs the engine standalone. `verify:m2` drives the live HTTP API —
+start `npm run dev` first.
 
 ## Try the engine on its own
 
