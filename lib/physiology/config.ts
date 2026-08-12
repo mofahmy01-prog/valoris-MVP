@@ -10,6 +10,9 @@ import {
 } from "../params/parameters";
 
 export const PHYSIOLOGY_PARAM_NAMES = [
+  // --- Integration stepping ------------------------------------------------
+  "max_step_minutes",
+
   // --- Population defaults (used when a subject value is absent) ----------
   "body_mass_kg_default",
   "body_surface_area_m2_default",

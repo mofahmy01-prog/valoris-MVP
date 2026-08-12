@@ -17,6 +17,7 @@ import { appendAuditEvent } from "@/lib/db/audit";
 import { notFound, ok, parseJsonBody } from "@/lib/api/respond";
 import { postObservationsSchema } from "@/lib/api/schemas";
 import { distanceToPerimeterM } from "@/lib/fire/geometry";
+import { DEFAULT_PHYSIOLOGY_CONFIG } from "@/lib/physiology/default-config";
 import { DEFAULT_RISK_CONFIG } from "@/lib/risk/default-config";
 import { assessRisk } from "@/lib/risk/engine";
 import {
@@ -25,6 +26,11 @@ import {
   toPosition,
   toVitals,
 } from "@/lib/incident/mapping";
+import {
+  derivePhysiology,
+  EMPTY_CARRY_OVER,
+  type PhysiologyCarryOver,
+} from "@/lib/incident/physiology-pipeline";
 import { resolveFireFront } from "@/lib/incident/snapshot";
 
 export const dynamic = "force-dynamic";
@@ -89,6 +95,23 @@ export async function POST(
     previousBand: string | null;
     distanceToFireFrontM: number | null;
     fireFrontConfidence: string | null;
+    physiology: {
+      coreTempC: number;
+      coreTempSource: string;
+      reportedCoreTempC: number | null;
+      fatiguePct: number;
+      reportedFatiguePct: number | null;
+      hrrFraction: number | null;
+      metabolicRateWm2: number;
+      heatStorageWm2: number;
+      dlimMin: number | null;
+      heatStrainLimiter: string;
+      cohbPct: number;
+      toxicCombinedIndex: number;
+      stepMinutes: number;
+      modelVersion: string;
+      configHash: string;
+    };
   }> = [];
 
   for (const input of parsed.data.observations) {
@@ -114,12 +137,114 @@ export async function POST(
       fireFrontConfidence = front.confidence;
     }
 
+    /* --- Physiology: derive core temperature and fatigue ------------------ */
+    // Runs before the observation is written, so the derived values are stored
+    // on the same append-only row as the readings they came from.
+    const [previousObservation, exposureSoFar] = await Promise.all([
+      prisma.observation.findFirst({
+        where: { deploymentId: deployment.id },
+        orderBy: { recordedAtUtc: "desc" },
+      }),
+      prisma.observation.aggregate({
+        where: { deploymentId: deployment.id },
+        _max: { coPpm: true, pm25UgM3: true },
+      }),
+    ]);
+
+    const carryOver: PhysiologyCarryOver =
+      previousObservation === null
+        ? EMPTY_CARRY_OVER
+        : {
+            coreTempC: previousObservation.derivedCoreTempC,
+            fatiguePct: previousObservation.derivedFatiguePct,
+            cohbPct: previousObservation.derivedCohbPct,
+            pm25DoseUgMinM3: previousObservation.derivedPm25DoseUgMinM3,
+            worstCoPpm: exposureSoFar._max.coPpm,
+            worstPm25UgM3: exposureSoFar._max.pm25UgM3,
+            previousObservedAtMs: previousObservation.recordedAtUtc.getTime(),
+          };
+
+    const tsMs = (value: Date | null | undefined): number | undefined =>
+      value === null || value === undefined ? undefined : value.getTime();
+
+    const hrTimestamp = channelTimestamp(input.vitals.hrBpm, recordedAt);
+    const ambientTimestamp = channelTimestamp(
+      input.environment.ambientTempC,
+      recordedAt,
+    );
+    const humidityTimestamp = channelTimestamp(
+      input.environment.humidityPct,
+      recordedAt,
+    );
+
+    const physiology = derivePhysiology({
+      profile: toHealthProfile(deployment.firefighter),
+      readings: {
+        hrBpm: channelValue(input.vitals.hrBpm),
+        spo2Pct: channelValue(input.vitals.spo2Pct),
+        reportedCoreTempC: channelValue(input.vitals.coreTempC),
+        reportedFatiguePct: channelValue(input.vitals.fatiguePct),
+        ambientTempC: channelValue(input.environment.ambientTempC),
+        humidityPct: channelValue(input.environment.humidityPct),
+        meanRadiantTempC: null,
+        airVelocityMs: channelValue(input.environment.windSpeedMs),
+        coPpm: channelValue(input.environment.coPpm),
+        pm25UgM3: channelValue(input.environment.pm25UgM3),
+        wearingPpe: input.position.wearingPpe,
+        scbaOnAir: input.position.scbaOnAir,
+      },
+      timestamps: {
+        hrBpm: tsMs(hrTimestamp),
+        ambientTempC: tsMs(ambientTimestamp),
+        humidityPct: tsMs(humidityTimestamp),
+        coPpm: tsMs(channelTimestamp(input.environment.coPpm, recordedAt)),
+        pm25UgM3: tsMs(channelTimestamp(input.environment.pm25UgM3, recordedAt)),
+      },
+      carryOver,
+      observedAtMs: recordedAt.getTime(),
+      config: DEFAULT_PHYSIOLOGY_CONFIG,
+    });
+
     const observation = await prisma.observation.create({
       data: {
         incidentId: incident.id,
         deploymentId: deployment.id,
         recordedAtUtc: recordedAt,
         source: input.source,
+
+        wearingPpe: input.position.wearingPpe,
+
+        derivedCoreTempC: physiology.coreTempC,
+        derivedCoreTempUpdatedAtUtc:
+          physiology.coreTempUpdatedAtMs === undefined
+            ? null
+            : new Date(physiology.coreTempUpdatedAtMs),
+        derivedFatiguePct: physiology.fatiguePct,
+        derivedFatigueUpdatedAtUtc:
+          physiology.fatigueUpdatedAtMs === undefined
+            ? null
+            : new Date(physiology.fatigueUpdatedAtMs),
+        derivedHrrFraction: physiology.hrrFraction,
+        derivedEffectiveHrReserveBpm: physiology.effectiveHrReserveBpm,
+        derivedMetabolicRateWm2: physiology.metabolicRateWm2,
+        derivedHeatStorageWm2: physiology.heatStorageWm2,
+        derivedSweatRateGPerHour: Number.isFinite(
+          physiology.predictedSweatRateGPerHour,
+        )
+          ? physiology.predictedSweatRateGPerHour
+          : null,
+        derivedDlimMin: physiology.dlimMin,
+        derivedHeatStrainLimiter: physiology.heatStrainLimiter,
+        derivedCoreTempLimitC: physiology.coreTempLimitC,
+        derivedCohbPct: physiology.cohbPct,
+        derivedCoIndex: physiology.coIndex,
+        derivedPm25DoseUgMinM3: physiology.pm25DoseUgMinM3,
+        derivedPm25Index: physiology.pm25Index,
+        derivedStepMinutes: physiology.stepMinutes,
+        derivedStepCapped: physiology.stepCapped,
+        physiologyCaveatsJson: JSON.stringify(physiology.caveats),
+        physiologyModelVersion: physiology.modelVersion,
+        physiologyConfigHash: physiology.configHash,
 
         hrBpm: channelValue(input.vitals.hrBpm),
         spo2Pct: channelValue(input.vitals.spo2Pct),
@@ -256,6 +381,20 @@ export async function POST(
         missingInputs: assessment.dataQuality.missingInputs,
         modelVersion: assessment.modelVersion,
         configHash: assessment.configHash,
+        physiology: {
+          coreTempC: physiology.coreTempC,
+          coreTempIsModelled: true,
+          reportedCoreTempC: channelValue(input.vitals.coreTempC),
+          fatiguePct: physiology.fatiguePct,
+          hrrFraction: physiology.hrrFraction,
+          heatStorageWm2: physiology.heatStorageWm2,
+          dlimMin: physiology.dlimMin,
+          heatStrainLimiter: physiology.heatStrainLimiter,
+          cohbPct: physiology.cohbPct,
+          modelVersion: physiology.modelVersion,
+          configHash: physiology.configHash,
+          caveats: physiology.caveats,
+        },
       },
       occurredAtUtc: recordedAt,
     });
@@ -289,6 +428,23 @@ export async function POST(
       previousBand,
       distanceToFireFrontM,
       fireFrontConfidence,
+      physiology: {
+        coreTempC: physiology.coreTempC,
+        coreTempSource: "modelled_estimate",
+        reportedCoreTempC: channelValue(input.vitals.coreTempC),
+        fatiguePct: physiology.fatiguePct,
+        reportedFatiguePct: channelValue(input.vitals.fatiguePct),
+        hrrFraction: physiology.hrrFraction,
+        metabolicRateWm2: physiology.metabolicRateWm2,
+        heatStorageWm2: physiology.heatStorageWm2,
+        dlimMin: physiology.dlimMin,
+        heatStrainLimiter: physiology.heatStrainLimiter,
+        cohbPct: physiology.cohbPct,
+        toxicCombinedIndex: physiology.toxicCombinedIndex,
+        stepMinutes: physiology.stepMinutes,
+        modelVersion: physiology.modelVersion,
+        configHash: physiology.configHash,
+      },
     });
   }
 

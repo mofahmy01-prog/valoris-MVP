@@ -2,6 +2,16 @@
   "modelVersion": "valoris-physiology-0.1.0",
   "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. Every value is illustrative and unreviewed. The heat strain model is a REDUCED implementation of the ISO 7933 heat-balance core, not a conformant ISO 7933 implementation, and must never be presented as one. No external body has reviewed or validated any of this.",
   "parameters": {
+    "max_step_minutes": {
+      "value": 15,
+      "unit": "min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Cap on a single integration step. A long gap between observations must not produce an implausible jump in accumulated core temperature, fatigue or dose. Capping under-accumulates across a gap, which is the less alarming direction and is therefore flagged as a known limitation.",
+      "min": 1,
+      "max": 60,
+      "editable": true
+    },
     "body_mass_kg_default": {
       "value": 80,
       "unit": "kg",

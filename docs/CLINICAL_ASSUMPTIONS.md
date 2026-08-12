@@ -161,6 +161,59 @@ Explicitly **out of scope** and not to be built without separate review:
 estimating a missing physiological value from ambient conditions, workload,
 proximity or crewmates' readings. That would be an invented physiological model.
 
+### 14. Personalisation is additive, not compounding
+
+**Status: `illustrative` / `unreviewed`. Raised by engineering from observed model
+behaviour, not from any clinical source.**
+
+Measured behaviour, from `npm run sweep` (six profiles held fixed, vitals held
+fixed, environmental and proximity severity escalated across six steps from
+benign to extreme):
+
+| Step | ALPHA-1 (28, high fitness, no conditions) | BRAVO-2 (52, moderate fitness, moderate asthma) | Gap |
+|---|---|---|---|
+| 1 benign | 14.8 SAFE | 23.6 SAFE | 8.8 |
+| 2 light | 14.8 SAFE | 23.6 SAFE | 8.8 |
+| 3 moderate | 17.0 SAFE | 27.7 CAUTION | 10.7 |
+| 4 heavy | 29.3 CAUTION | 40.2 CAUTION | 10.9 |
+| 5 severe | 39.2 CAUTION | 50.3 HIGH | 11.1 |
+| 6 extreme | 46.6 CAUTION | 56.7 HIGH | 10.1 |
+
+**Profile-based personalisation currently behaves as a near-constant offset
+(8.8–11.1 points) rather than a widening divergence as conditions worsen.
+Physiologically, vulnerability may compound under stress rather than remain
+parallel — a firefighter with reduced reserve may deteriorate
+disproportionately in severe conditions. Question for review: should the profile
+subscore scale multiplicatively with environmental and proximity severity rather
+than additively? Current behaviour means personalisation only changes a
+commander's decision where band cut-offs happen to fall relative to a fixed
+offset.**
+
+Why it happens: the composite is a weighted sum of four subscores
+(physiological 40%, environmental 30%, proximity 20%, profile 10%). The profile
+subscore depends only on the individual and does not vary with conditions, so it
+contributes a fixed increment at every severity level. The gap widens slightly
+(8.8 → 11.1) only because respiratory risk and cumulative exposure tighten the
+*environmental* thresholds, which is a second-order effect.
+
+What this does and does not mean:
+
+- It does **not** mean personalisation is inert. In the sweep the crew occupied
+  different bands at 3 of 6 steps, and BRAVO-2 reached `HIGH` at least two steps
+  before ALPHA-1 — see docs/KNOWN_LIMITATIONS.md.
+- It **does** mean the operational value of personalisation is sensitive to where
+  the band cut-offs sit. A fixed ~10-point offset only changes a decision when a
+  cut-off falls inside it.
+
+**No multiplicative model has been implemented.** Changing additive to
+multiplicative composition would alter every score in the system and is a
+clinical decision, not an engineering one. Logged for review only.
+
+**Needs review:** whether profile vulnerability should interact
+multiplicatively with environmental and proximity severity; and if so, whether
+the interaction should be bounded, since an unbounded product would let profile
+alone drive a `CRITICAL` band in severe conditions.
+
 ## Sign-off checklist
 
 No item below may be ticked by an engineer.
@@ -180,6 +233,7 @@ No item below may be ticked by an engineer.
 | 11 | Composite weights and band cut-offs | | | |
 | 12 | SpO2 override confirmation and fail-safe default | | | |
 | 13 | Projected values for dropped sensors, and whether they may fire an override | | | |
+| 14 | Additive vs. multiplicative profile personalisation (near-constant 8.8–11.1 point offset) | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and

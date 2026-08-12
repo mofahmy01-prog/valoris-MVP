@@ -178,6 +178,35 @@ model Observation {
   escapeRouteUpdatedAtUtc          DateTime?
   scbaPressureUpdatedAtUtc         DateTime?
 
+  /// Whether PPE was worn. Drives the heat-balance clothing terms.
+  wearingPpe Boolean @default(true)
+
+  // --- Derived physiology (Tier C models) ---------------------------------
+  // The columns above are what the sensors reported. These are what the models
+  // produced, and these are what the risk engine consumed. Keeping both means a
+  // stored assessment can always be traced back to which number was used.
+  derivedCoreTempC             Float?
+  derivedCoreTempUpdatedAtUtc  DateTime?
+  derivedFatiguePct            Float?
+  derivedFatigueUpdatedAtUtc   DateTime?
+  derivedHrrFraction           Float?
+  derivedEffectiveHrReserveBpm Float?
+  derivedMetabolicRateWm2      Float?
+  derivedHeatStorageWm2        Float?
+  derivedSweatRateGPerHour     Float?
+  derivedDlimMin               Float?
+  derivedHeatStrainLimiter     String?
+  derivedCoreTempLimitC        Float?
+  derivedCohbPct               Float?
+  derivedCoIndex               Float?
+  derivedPm25DoseUgMinM3       Float?
+  derivedPm25Index             Float?
+  derivedStepMinutes           Float?
+  derivedStepCapped            Boolean?
+  physiologyCaveatsJson        String?
+  physiologyModelVersion       String?
+  physiologyConfigHash         String?
+
   // Provenance of the fire front this observation's distance was measured
   // against, so a stored distance can always be traced to its source.
   fireProviderKey       String?

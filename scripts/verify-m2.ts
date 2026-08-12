@@ -6,6 +6,8 @@
  * SIMULATION MODE — NOT FOR OPERATIONAL USE.
  */
 
+export {}; // module scope, so top-level names do not collide with sibling scripts
+
 const BASE = process.env["VALORIS_BASE_URL"] ?? "http://localhost:3000";
 
 let failures = 0;

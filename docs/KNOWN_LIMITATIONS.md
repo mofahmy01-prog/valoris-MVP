@@ -150,6 +150,57 @@ engine change is needed before then.
 
 **Until it lands**, dropouts behave as described in limitations 6 and 8.
 
+## Database guards are fragile under migration
+
+22. **Prisma SQLite migrations silently drop triggers.** Adding a column to a
+    SQLite table is implemented by Prisma as a table rebuild: `CREATE TABLE
+    new_Observation`, copy rows, `DROP TABLE "Observation"`, rename. SQLite drops
+    every trigger attached to a dropped table, so the two `Observation`
+    append-only triggers were removed by both the `position_freshness` and
+    `derived_physiology` migrations. `AuditEvent` was untouched by those
+    migrations and kept its guards.
+
+    The append-only guarantee on `Observation` — the raw evidence behind every
+    stored risk assessment — was therefore unenforced at the database level
+    between those migrations and `restore_append_only_triggers`. No application
+    code issues an UPDATE or DELETE, so no data is known to have changed, but the
+    guard was absent, and for an audit trail that is a defect in itself.
+
+    Detected by `npm run verify:m2`, which asserts each trigger exists by name
+    and then proves it bites.
+
+    **Any future migration touching `Observation` or `AuditEvent` must re-apply
+    the guards.** Run `npm run db:guards` after migrating, then
+    `npm run verify:m2`. The guards script is idempotent and fails loudly if a
+    guard is missing or does not actually refuse a write.
+
+## Two different core temperature limits exist
+
+23. **`phs_core_temp_limit_c` (38.0 °C) and `override_core_temp_critical_c`
+    (39.5 °C) are different numbers for different purposes, and nothing on screen
+    yet explains that.** The first is an exposure-duration ceiling in the
+    physiology config, used to compute allowable minutes. The second is a
+    mayday-level threshold in the risk config, used to fire a hard override. Both
+    are personalised, by different shift parameters
+    (`heat_tolerance_core_limit_shift_c` = 0.3 °C and
+    `heat_tolerance_core_temp_shift_c` = 0.5 °C respectively).
+
+    A commander seeing "core temp limit 37.7 °C" from the physiology model and a
+    `CRITICAL` override firing at 39.0 °C for the same firefighter has every
+    right to be confused. The two need distinct labels before either reaches a
+    screen.
+
+## Modelled core temperature rises fast
+
+24. **In extreme conditions the estimate climbs about 0.5 °C per five minutes.**
+    Observed in `npm run verify:m3b`: HR 148 bpm, ambient 42 °C, 55% humidity, in
+    PPE, on air — BRAVO-2 goes 37.0 → 39.9 °C over 30 minutes. Directionally this
+    is what an encapsulated firefighter working hard in extreme heat does, but the
+    *rate* comes from invented parameters, chiefly the evaporative resistance of
+    PPE and the sweat-rate ceiling. Heat storage reaches 402 W/m² because required
+    sweat exceeds what can be produced. Flagged for physician review before any
+    number derived from this rate is shown to a commander.
+
 ## Scope
 
 16. **No autonomous action, ever.** Valoris recommends. The commander decides.

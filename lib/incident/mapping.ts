@@ -54,21 +54,41 @@ function putTimestamp(
   target[key] = updatedAt.getTime();
 }
 
+/**
+ * Vitals as the risk engine sees them.
+ *
+ * `coreTempC` and `fatiguePct` come from the physiology models, not from the
+ * reported sensor columns — see lib/incident/physiology-pipeline.ts. The
+ * reported values remain on the row for the audit trail. Where a derivation is
+ * absent (an observation stored before the models were wired in) the reported
+ * value is used and that fact is visible in the row.
+ */
 export function toVitals(
   row: Observation,
   recentSpo2Pct?: number[],
 ): Vitals {
+  const coreTempC = row.derivedCoreTempC ?? row.coreTempC;
+  const coreTempAt =
+    row.derivedCoreTempC === null
+      ? row.coreTempUpdatedAtUtc
+      : row.derivedCoreTempUpdatedAtUtc;
+  const fatiguePct = row.derivedFatiguePct ?? row.fatiguePct;
+  const fatigueAt =
+    row.derivedFatiguePct === null
+      ? row.fatigueUpdatedAtUtc
+      : row.derivedFatigueUpdatedAtUtc;
+
   const lastUpdatedMs: Record<string, number> = {};
   putTimestamp(lastUpdatedMs, "hrBpm", row.hrBpm, row.hrUpdatedAtUtc);
   putTimestamp(lastUpdatedMs, "spo2Pct", row.spo2Pct, row.spo2UpdatedAtUtc);
-  putTimestamp(lastUpdatedMs, "coreTempC", row.coreTempC, row.coreTempUpdatedAtUtc);
+  putTimestamp(lastUpdatedMs, "coreTempC", coreTempC, coreTempAt);
   putTimestamp(
     lastUpdatedMs,
     "respRatePerMin",
     row.respRatePerMin,
     row.respRateUpdatedAtUtc,
   );
-  putTimestamp(lastUpdatedMs, "fatiguePct", row.fatiguePct, row.fatigueUpdatedAtUtc);
+  putTimestamp(lastUpdatedMs, "fatiguePct", fatiguePct, fatigueAt);
   putTimestamp(
     lastUpdatedMs,
     "hydrationPct",
@@ -79,9 +99,9 @@ export function toVitals(
   const vitals: Vitals = {
     hrBpm: row.hrBpm,
     spo2Pct: row.spo2Pct,
-    coreTempC: row.coreTempC,
+    coreTempC,
     respRatePerMin: row.respRatePerMin,
-    fatiguePct: row.fatiguePct,
+    fatiguePct,
     hydrationPct: row.hydrationPct,
     fallDetected: row.fallDetected,
     lastUpdatedMs,

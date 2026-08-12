@@ -102,6 +102,8 @@ export const observationSchema = z
         escapeRouteStatus: z.enum(ESCAPE_ROUTE_STATUSES),
         scbaPressurePct: nullableNumber.optional(),
         scbaOnAir: z.boolean().default(true),
+        /** Drives the heat-balance clothing terms. Defaults to worn. */
+        wearingPpe: z.boolean().default(true),
         timeOnTaskMin: z.number().finite().min(0),
         manualMaydayActive: z.boolean().default(false),
 

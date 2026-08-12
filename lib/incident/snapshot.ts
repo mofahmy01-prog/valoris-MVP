@@ -41,6 +41,33 @@ export type FirefighterSnapshot = {
   };
   latestObservationAtUtc: string | null;
   risk: RiskAssessment | null;
+  /**
+   * What the physiology models produced for this tick. `coreTempC` and
+   * `fatiguePct` in `risk` came from here, not from a sensor.
+   */
+  physiology: {
+    coreTempC: number | null;
+    coreTempIsModelled: boolean;
+    reportedCoreTempC: number | null;
+    coreTempLimitC: number | null;
+    fatiguePct: number | null;
+    hrrFraction: number | null;
+    effectiveHrReserveBpm: number | null;
+    metabolicRateWm2: number | null;
+    heatStorageWm2: number | null;
+    predictedSweatRateGPerHour: number | null;
+    dlimMin: number | null;
+    heatStrainLimiter: string | null;
+    cohbPct: number | null;
+    coIndex: number | null;
+    pm25DoseUgMinM3: number | null;
+    pm25Index: number | null;
+    stepMinutes: number | null;
+    stepCapped: boolean | null;
+    caveats: string[];
+    modelVersion: string | null;
+    configHash: string | null;
+  } | null;
   reason?: string;
 };
 
@@ -111,6 +138,7 @@ export async function buildIncidentSnapshot(
         ...base,
         latestObservationAtUtc: null,
         risk: null,
+        physiology: null,
         reason:
           "No observation recorded yet. Absence of data is not a safe reading — no band is reported.",
       });
@@ -127,6 +155,32 @@ export async function buildIncidentSnapshot(
     firefighters.push({
       ...base,
       latestObservationAtUtc: latest.recordedAtUtc.toISOString(),
+      physiology: {
+        coreTempC: latest.derivedCoreTempC,
+        coreTempIsModelled: latest.derivedCoreTempC !== null,
+        reportedCoreTempC: latest.coreTempC,
+        coreTempLimitC: latest.derivedCoreTempLimitC,
+        fatiguePct: latest.derivedFatiguePct,
+        hrrFraction: latest.derivedHrrFraction,
+        effectiveHrReserveBpm: latest.derivedEffectiveHrReserveBpm,
+        metabolicRateWm2: latest.derivedMetabolicRateWm2,
+        heatStorageWm2: latest.derivedHeatStorageWm2,
+        predictedSweatRateGPerHour: latest.derivedSweatRateGPerHour,
+        dlimMin: latest.derivedDlimMin,
+        heatStrainLimiter: latest.derivedHeatStrainLimiter,
+        cohbPct: latest.derivedCohbPct,
+        coIndex: latest.derivedCoIndex,
+        pm25DoseUgMinM3: latest.derivedPm25DoseUgMinM3,
+        pm25Index: latest.derivedPm25Index,
+        stepMinutes: latest.derivedStepMinutes,
+        stepCapped: latest.derivedStepCapped,
+        caveats:
+          latest.physiologyCaveatsJson === null
+            ? []
+            : (JSON.parse(latest.physiologyCaveatsJson) as string[]),
+        modelVersion: latest.physiologyModelVersion,
+        configHash: latest.physiologyConfigHash,
+      },
       risk: assessRisk(
         toHealthProfile(deployment.firefighter),
         toVitals(latest, recentSpo2Pct),
