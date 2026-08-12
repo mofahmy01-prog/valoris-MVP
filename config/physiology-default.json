@@ -376,54 +376,101 @@
       "max": 44,
       "editable": true
     },
-    "core_temp_weight_heat_storage": {
-      "value": 0.6,
-      "unit": "fraction",
-      "sourceStatus": "illustrative",
+    "kalman_initial_core_temp_c": {
+      "value": 37.1,
+      "unit": "C",
+      "sourceStatus": "literature_derived",
       "clinicalReviewStatus": "unreviewed",
-      "rationale": "Weight of the heat-balance storage term in the core temperature estimate.",
+      "rationale": "Initial core temperature estimate for the sequential Kalman filter. TRANSCRIPTION UNVERIFIED against the primary source.",
+      "citation": "ref [2]",
+      "min": 36,
+      "max": 38,
+      "editable": true
+    },
+    "kalman_initial_variance_c2": {
+      "value": 0,
+      "unit": "C^2",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Initial estimate variance. Zero expresses full confidence in the starting value, which is itself an assumption rather than a measurement. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
       "min": 0,
       "max": 1,
       "editable": true
     },
-    "core_temp_weight_cardiac": {
-      "value": 0.4,
-      "unit": "fraction",
-      "sourceStatus": "illustrative",
+    "kalman_variance_growth_c2_per_min": {
+      "value": 0.000484,
+      "unit": "C^2 per min",
+      "sourceStatus": "literature_derived",
       "clinicalReviewStatus": "unreviewed",
-      "rationale": "Weight of the heart-rate-driven term in the core temperature estimate.",
+      "rationale": "Process noise: how fast the estimate's variance grows per minute without an observation. This is what makes a heart-rate dropout degrade the estimate on its own. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
+      "min": 0.000001,
+      "max": 0.1,
+      "editable": true
+    },
+    "kalman_observation_variance_bpm2": {
+      "value": 18.88,
+      "unit": "bpm^2",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Observation noise variance for heart rate. Larger values make the filter trust its own prediction over the reading. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
+      "min": 1,
+      "max": 400,
+      "editable": true
+    },
+    "kalman_hr_intercept_b0": {
+      "value": -7887.1,
+      "unit": "bpm",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Constant term in the quadratic observation model relating heart rate to core temperature. Meaningless in isolation; only the curve matters. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
+      "min": -20000,
+      "max": 0,
+      "editable": true
+    },
+    "kalman_hr_linear_b1": {
+      "value": 384.4286,
+      "unit": "bpm per C",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Linear term in the observation model. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
       "min": 0,
-      "max": 1,
+      "max": 2000,
       "editable": true
     },
-    "core_temp_cardiac_rise_c_per_hour_at_max_hrr": {
-      "value": 2.4,
-      "unit": "C/h",
+    "kalman_hr_quadratic_b2": {
+      "value": -4.5714,
+      "unit": "bpm per C^2",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Quadratic term in the observation model. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [2]",
+      "min": -50,
+      "max": 0,
+      "editable": true
+    },
+    "core_temp_upper_bound_sd_multiple": {
+      "value": 1,
+      "unit": "standard deviations",
       "sourceStatus": "illustrative",
       "clinicalReviewStatus": "unreviewed",
-      "rationale": "Core temperature rise per hour attributable to cardiac strain at full heart rate reserve.",
-      "min": 0.5,
-      "max": 5,
+      "rationale": "Downstream models that make a safety-relevant decision use an UPPER CONFIDENCE BOUND on core temperature (estimate plus this many standard deviations) rather than the point estimate. Without it, a heart-rate dropout stops the estimate rising while its uncertainty grows, so fatigue accumulation would quietly become less pessimistic exactly when the data got worse. See docs/CLINICAL_ASSUMPTIONS.md item 19.",
+      "min": 0,
+      "max": 3,
       "editable": true
     },
-    "core_temp_cardiac_hrr_threshold_frac": {
+    "core_temp_estimate_sd_confidence_drop_c": {
       "value": 0.35,
-      "unit": "fraction",
+      "unit": "C",
       "sourceStatus": "illustrative",
       "clinicalReviewStatus": "unreviewed",
-      "rationale": "Heart rate reserve fraction below which cardiac strain contributes no net core temperature rise.",
-      "min": 0,
-      "max": 0.8,
-      "editable": true
-    },
-    "core_temp_recovery_c_per_hour": {
-      "value": 1.2,
-      "unit": "C/h",
-      "sourceStatus": "illustrative",
-      "clinicalReviewStatus": "unreviewed",
-      "rationale": "Rate at which core temperature returns toward baseline when heat storage is negative and exertion is below the threshold.",
-      "min": 0.1,
-      "max": 4,
+      "rationale": "Standard deviation of the core temperature estimate above which data-quality confidence drops a further step. An estimate whose uncertainty exceeds roughly a third of a degree is weak evidence for a decision about a person.",
+      "min": 0.05,
+      "max": 2,
       "editable": true
     },
 
@@ -596,16 +643,6 @@
       "rationale": "Cumulative inhaled PM2.5 dose treated as index 1.0, for example 250 ug/m3 for 120 minutes. No occupational dose limit for wildfire smoke is settled, which is exactly why this is illustrative.",
       "min": 1000,
       "max": 200000,
-      "editable": true
-    },
-    "scba_inhaled_fraction_on_air": {
-      "value": 0.05,
-      "unit": "fraction",
-      "sourceStatus": "illustrative",
-      "clinicalReviewStatus": "unreviewed",
-      "rationale": "Fraction of ambient contaminant still inhaled while on air. Deliberately not zero: Valoris cannot verify mask seal, cylinder contents or compliance, so it never credits perfect protection.",
-      "min": 0,
-      "max": 1,
       "editable": true
     },
     "scba_inhaled_fraction_off_air": {

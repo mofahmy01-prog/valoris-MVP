@@ -269,6 +269,118 @@ what the defensible range is. Any time-to-danger figure shown to a commander is
 a direct function of this rate, so it must be reviewed before Milestone 5
 surfaces one.
 
+### 17. One SCBA protection factor, provisionally set at the more conservative value
+
+**Status: `illustrative` / `unreviewed`. PROVISIONAL — engineering picked neither
+value, only the safer of two that already existed.**
+
+"How much airborne contaminant still reaches the wearer while on air" was held as
+**two different parameters with two different values**:
+
+| Where | Parameter | Value | Used for |
+|---|---|---|---|
+| risk config | `scba_inhalation_protection_factor` | **0.25** | CO and PM2.5 in the environmental subscore |
+| physiology config | `scba_inhaled_fraction_on_air` | **0.05** | CO uptake and PM2.5 dose accumulation |
+
+One physical quantity, a five-fold disagreement. Now unified as a single
+parameter in `config/shared-default.json`, which both models load; a model config
+that redefines it is rejected at load, so they cannot drift apart again.
+
+**Interim value: 0.25**, the more conservative of the two — it admits more
+contaminant and therefore produces higher risk. Chosen only because a choice was
+required to run; engineering is not competent to set it.
+
+**Question for review:** what fraction of ambient CO and particulate actually
+reaches a firefighter on air, allowing for facepiece leakage, seal quality, and
+mask removal for communication? Is a single number appropriate at all, or does it
+need to differ by contaminant, by mask type, or by whether the wearer has been
+observed to break seal? The value may never be zero — Valoris cannot verify seal,
+cylinder contents or compliance.
+
+### 18. PPE heart-rate penalty — two candidate formulations
+
+**Status: `illustrative` / `unreviewed`. Genuine physiological disagreement, for
+arbitration.**
+
+The Data Addendum specifies a **fixed penalty in beats per minute**:
+`turnout_gear_hr_penalty_bpm` = 12 bpm, `literature_derived`, citing published
+simulated-firefighting studies reporting elevated heart rate in turnout gear at
+equivalent workload.
+
+What is implemented instead is a **penalty proportional to heart-rate reserve**:
+`ppe_reserve_penalty_frac_per_clo` = 0.06 per clo, so 1.8 clo removes about 11% of
+the reserve — roughly 15 bpm for a 28-year-old with a 142 bpm reserve, and about
+11 bpm for a 52-year-old with a 98 bpm reserve.
+
+**The argument for the implemented version:** a fixed 12 bpm consumes a much
+larger share of a 52-year-old's usable range than a 28-year-old's. Scaling with
+reserve is more consistent with the rest of the model, which personalises
+everything else against individual reserve.
+
+**The argument against it:** it is invented. The addendum's 12 bpm can be pointed
+at a paper; 0.06 per clo cannot be pointed at anything.
+
+**This is a real trade-off between better physiology and defensible provenance,
+and it is not an engineering call.** If the reserve-scaled form is preferred it
+should be re-derived from the same literature so it can carry a citation. If the
+fixed form is preferred, the personalisation loss should be accepted explicitly.
+
+### 19. Downstream models use an upper bound on core temperature
+
+**Status: `illustrative` / `unreviewed`.**
+
+The Kalman estimator holds its estimate steady when heart rate drops out and grows
+its variance instead. Feeding that point estimate to fatigue accumulation made a
+dropout *less* pessimistic exactly as the data got worse — caught by a property
+test.
+
+Safety-relevant downstream models therefore consume an **upper confidence bound**,
+estimate + `core_temp_upper_bound_sd_multiple` (currently 1) × standard deviation,
+rather than the point estimate. The point estimate is what gets displayed.
+
+**Question for review:** is one standard deviation the right margin, and should
+the **risk score itself** use the upper bound rather than the point estimate? At
+present the score uses the point estimate and lets the standard deviation reduce
+confidence instead. Using the bound would raise every score in poor-data
+conditions. Both are defensible; the choice is clinical.
+
+### 20. Divergences from the Data Addendum, unresolved by engineering
+
+Logged rather than decided, per instruction.
+
+| # | Addendum specifies | Implemented | Note |
+|---|---|---|---|
+| 4 | `turnout_gear_hr_penalty_bpm` = 12 bpm, `literature_derived` | `ppe_reserve_penalty_frac_per_clo` = 0.06, `illustrative` | See item 18 |
+| 5 | Turnout gear ≈ 2.0–2.5 clo | 1.8 clo | Below the specified range. Raising it increases evaporative resistance and heat storage, so it is not a cosmetic change |
+| 6a | ALPHA-2 mild hypertension: "−5 bpm override threshold" | Not implemented | No condition-to-override mapping exists. Hypertension currently affects only the condition count |
+| 6b | BRAVO-2 moderate asthma: "tighter SpO₂ **and PM2.5** thresholds" | SpO₂ tightened by respiratory risk; PM2.5 tightened only by cumulative exposure | The addendum ties tighter PM2.5 to the condition; the implementation ties it to accumulated dose. Arguably both should apply |
+| 6c | CHARLIE-1: "faster heat accumulation" | Low heat tolerance tightens limits but does not accelerate accumulation | A tighter ceiling and a faster climb are different claims |
+| 7 | Fatigue is a function of time on task, metabolic rate, heat storage, previous shift hours, **and hydration** | Hydration is not an input | `hydrationPct` is captured, tracked for staleness, and unused |
+
+## References
+
+Every citation below is recorded so that a `literature_derived` claim can be
+checked. **Verification status is stated for each, and none has been verified
+against the primary source by the author of this codebase.** Honesty rule 8 is
+"cite every model, no fabricated references" — recording an unverified
+transcription as unverified is the only way to keep that rule while still being
+useful.
+
+| Ref | Source | Used for | Verification status |
+|---|---|---|---|
+| **[1]** | ISO 7933 — *Ergonomics of the thermal environment: analytical determination and interpretation of heat stress using calculation of the predicted heat strain* | Structure of the reduced heat-balance model in `lib/physiology/heat-strain.ts` | **Structure only, from general knowledge.** The implementation is explicitly NOT conformant and omits the standard's iterative integration and clothing sub-models. No parameter in the shipped config claims `literature_derived` from this standard. |
+| **[2]** | Buller MJ et al., *Estimation of human core temperature from sequential heart rate observations*, Physiological Measurement, 2013 | Every `kalman_*` parameter, and the filter structure in `lib/physiology/core-temp-kalman.ts` | **UNVERIFIED TRANSCRIPTION. The coefficient values were written from memory and have not been checked against the paper.** The method is published; the specific numbers must be confirmed before any use. Validation in the source is against rectal thermometry in laboratory conditions, NOT firefighters in PPE. |
+| **[3]** | Barkjohn KK et al., *Correction and Accuracy of PurpleAir PM2.5 Measurements for Extreme Wildfire Smoke*, Sensors 2022, **22**, 9669 — with corrigendum Sensors 2024, **24**, 7871 | PM2.5 correction, Milestone 3d, **not yet implemented** | **Quoted verbatim from the Sensor Integration Spec.** Not yet read. |
+| **[4]** | Karvonen MJ, Kentala E, Mustala O, *The effects of training on heart rate*, 1957 | Heart-rate reserve method in `lib/physiology/cardiac.ts` | **Attribution of the method only, from general knowledge.** No shipped parameter claims `literature_derived` from it. The PPE penalty layered on top is invented — see item 18. |
+| **[5]** | Coburn RF, Forster RE, Kane PB — carboxyhaemoglobin kinetics, 1965 | Named for **contrast** in `lib/physiology/toxic-exposure.ts`, which explicitly does NOT implement it | **Named only.** The implementation is a first-order approximation with invented coefficients and says so. |
+| **[6]** | WESAD; PAMAP2; PhysioNet | Tier B signal texture, **not yet implemented** | **Dataset names from the Data Addendum.** Full citations still to be obtained. Nothing in the build claims Tier B. |
+| **[7]** | Firefighter physiological studies named in the Data Addendum: Horn, Blevins, Fernhall, Smith; Sandsund, Aamodt, Renberg (2024); Rodríguez-Marroyo; and two further unnamed 2023/2026 datasets | Nothing yet — these are the outreach targets for moving Tier C toward validation | **Author names only, as given in the addendum.** No full citations, no papers read. Logged in `docs/DATA_PROVENANCE.md`. |
+
+**Nothing in this codebase may be marked `validated` on the strength of any
+reference above.** A citation establishes that a method is published. It does not
+establish that this implementation of it is correct, nor that it applies to
+firefighters in PPE.
+
 ## Sign-off checklist
 
 No item below may be ticked by an engineer.
@@ -291,6 +403,13 @@ No item below may be ticked by an engineer.
 | 14 | Additive vs. multiplicative profile personalisation (near-constant 8.8–11.1 point offset) | | | |
 | 15 | Two unlabelled core temperature limits (38.0 °C duration ceiling vs 39.5 °C override) | | | |
 | 16 | Modelled core temperature rise rate (~0.5 °C per five minutes in extreme conditions) | | | |
+| 17 | SCBA inhaled fraction — provisionally 0.25, was 0.25 vs 0.05 | | | |
+| 18 | PPE heart-rate penalty — fixed 12 bpm vs reserve-scaled 0.06/clo | | | |
+| 19 | Upper-bound margin on core temperature, and whether scoring should use it | | | |
+| 20 | Kalman coefficient values — verify against ref [2] before any use | | | |
+| 21 | Turnout gear insulation 1.8 clo vs the specified 2.0–2.5 clo | | | |
+| 22 | Condition-specific threshold shifts (hypertension HR, asthma PM2.5) | | | |
+| 23 | Hydration as a fatigue input | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and

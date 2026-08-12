@@ -70,6 +70,7 @@ const FRESH_TIMESTAMPS: ReadingTimestamps = {
 function carryOver(over: Partial<PhysiologyCarryOver> = {}): PhysiologyCarryOver {
   return {
     coreTempC: 37.2,
+    coreTempVarianceC2: 0.01,
     fatiguePct: 30,
     cohbPct: 2,
     pm25DoseUgMinM3: 500,
@@ -77,7 +78,7 @@ function carryOver(over: Partial<PhysiologyCarryOver> = {}): PhysiologyCarryOver
     worstPm25UgM3: 140,
     previousObservedAtMs: NOW_MS - 5 * 60_000,
     ...over,
-  };
+  } as PhysiologyCarryOver;
 }
 
 function derive(
@@ -156,10 +157,41 @@ describe("physiology pipeline — composition", () => {
     expect(second.cohbPct).toBeGreaterThan(first.cohbPct);
   });
 
-  it("starts from configured baselines on the first observation", () => {
+  it("starts from the filter's configured initial state on the first observation", () => {
     const d = derive(PROFILES[0] as HealthProfile, {}, EMPTY_CARRY_OVER);
     expect(d.stepMinutes).toBe(0);
-    expect(d.coreTempC).toBeCloseTo(physParam(PHYS, "core_temp_baseline_c"), 2);
+    expect(d.coreTempC).toBeCloseTo(physParam(PHYS, "kalman_initial_core_temp_c"), 2);
+  });
+
+  it("carries the filter variance between ticks, not just the estimate", () => {
+    // With an observation the variance converges to a steady state, so it
+    // legitimately forgets where it started. The carry matters during a DROPOUT,
+    // when variance only grows: accumulated uncertainty must survive the tick
+    // boundary rather than silently resetting.
+    const noHr = { hrBpm: null };
+    const timestamps = { ...FRESH_TIMESTAMPS, hrBpm: undefined };
+
+    const carriedUncertainty = derive(
+      PROFILES[0] as HealthProfile,
+      noHr,
+      { ...carryOver(), coreTempVarianceC2: 0.09 },
+      timestamps,
+    );
+    const freshFilter = derive(
+      PROFILES[0] as HealthProfile,
+      noHr,
+      { ...carryOver(), coreTempVarianceC2: null },
+      timestamps,
+    );
+
+    expect(carriedUncertainty.coreTempVarianceC2).toBeGreaterThan(
+      freshFilter.coreTempVarianceC2,
+    );
+    expect(carriedUncertainty.coreTempSdC).toBeGreaterThan(freshFilter.coreTempSdC);
+    // And accumulated uncertainty widens the bound handed downstream.
+    expect(
+      carriedUncertainty.coreTempUpperBoundC - carriedUncertainty.coreTempC,
+    ).toBeGreaterThan(freshFilter.coreTempUpperBoundC - freshFilter.coreTempC);
   });
 
   it("caps a long gap between observations and says so", () => {
@@ -207,11 +239,40 @@ describe("physiology pipeline — derived freshness", () => {
 
   it("is pessimistic, not optimistic, when heart rate is absent", () => {
     const withHr = derive(PROFILES[0] as HealthProfile, { hrBpm: 100 });
-    const withoutHr = derive(PROFILES[0] as HealthProfile, { hrBpm: null });
+    const withoutHr = derive(PROFILES[0] as HealthProfile, { hrBpm: null }, carryOver(), {
+      ...FRESH_TIMESTAMPS,
+      hrBpm: undefined,
+    });
+
     expect(withoutHr.metabolicRateWm2).toBeGreaterThan(withHr.metabolicRateWm2);
-    expect(withoutHr.coreTempC).toBeGreaterThan(withHr.coreTempC);
-    expect(withoutHr.fatiguePct).toBeGreaterThan(withHr.fatiguePct);
     expect(withoutHr.cohbPct).toBeGreaterThan(withHr.cohbPct);
+    expect(withoutHr.fatiguePct).toBeGreaterThan(withHr.fatiguePct);
+
+    // The Kalman filter does NOT inflate the point estimate on a dropout — it
+    // holds it and grows the variance instead. The pessimism therefore lives in
+    // the uncertainty and in the upper bound handed downstream, not in the
+    // reported value.
+    expect(withoutHr.coreTempObservationApplied).toBe(false);
+    expect(withoutHr.coreTempSdC).toBeGreaterThan(withHr.coreTempSdC);
+    expect(withoutHr.coreTempUpperBoundC).toBeGreaterThan(withoutHr.coreTempC);
+    // And the derived channel is handed over unaged, so the risk engine scores
+    // core temperature at worst case rather than trusting a modelled number.
+    expect(withoutHr.coreTempUpdatedAtMs).toBeUndefined();
+  });
+
+  it("hands downstream models an upper bound, never a comfortable point estimate", () => {
+    const certain = derive(PROFILES[0] as HealthProfile, {}, {
+      ...carryOver(),
+      coreTempVarianceC2: 0,
+    });
+    const uncertain = derive(PROFILES[0] as HealthProfile, { hrBpm: null }, {
+      ...carryOver(),
+      coreTempVarianceC2: 0.2,
+    });
+    expect(uncertain.coreTempUpperBoundC - uncertain.coreTempC).toBeGreaterThan(
+      certain.coreTempUpperBoundC - certain.coreTempC,
+    );
+    expect(uncertain.caveats.join(" ")).toContain("upper confidence bound");
   });
 
   it("propagates unaged derived values into an UNKNOWN band, not a confident one", () => {
@@ -381,19 +442,30 @@ describe("physiology pipeline — personalisation", () => {
     expect(new Set(scores).size).toBe(6);
   });
 
-  it("produces distinct modelled core temperatures and fatigue per profile", () => {
+  it("produces distinct modelled fatigue per profile", () => {
     const results = PROFILES.map((p) => scoreThroughPipeline(p));
-    // Age and resting rate change the reserve fraction, so the cardiac term and
-    // the inferred metabolic rate differ; heat tolerance shifts the limits.
-    expect(new Set(results.map((r) => r.coreTempC)).size).toBeGreaterThan(1);
     expect(new Set(results.map((r) => r.fatiguePct)).size).toBeGreaterThan(1);
   });
 
-  it("keeps the older, asthmatic firefighter above the young fit one", () => {
+  it("produces IDENTICAL core temperatures per profile — the published model is HR-only", () => {
+    // Consequence of switching to the published sequential estimator: it takes
+    // heart rate and nothing else, so identical heart rates give identical core
+    // temperature estimates regardless of age, fitness or heat tolerance.
+    // Personalisation of core temperature now lives entirely in the LIMITS the
+    // estimate is compared against, not in the estimate itself.
+    // Pinned deliberately: if this ever starts differing, something has folded
+    // profile data back into the published model. See docs/KNOWN_LIMITATIONS.md
+    // item 25.
+    const results = PROFILES.map((p) => scoreThroughPipeline(p));
+    expect(new Set(results.map((r) => r.coreTempC)).size).toBe(1);
+  });
+
+  it("keeps the older, asthmatic firefighter above the young fit one on score", () => {
     const alpha1 = scoreThroughPipeline(PROFILES[0] as HealthProfile);
     const bravo2 = scoreThroughPipeline(PROFILES[3] as HealthProfile);
     expect(bravo2.score).toBeGreaterThan(alpha1.score);
-    expect(bravo2.coreTempC).toBeGreaterThan(alpha1.coreTempC);
+    // Their core temperature estimates are now equal — see the test above.
+    expect(bravo2.coreTempC).toBe(alpha1.coreTempC);
   });
 
   it("gives a lower-fitness firefighter more fatigue at the same heart rate", () => {
@@ -474,12 +546,16 @@ describe("physiology pipeline — properties", () => {
     );
   });
 
-  it("never lets a missing heart rate reduce modelled strain", () => {
+  it("never treats a missing heart rate as rest", () => {
+    // The guarantee is about ABSENCE versus REST, not absence versus any
+    // reading. A known 190 bpm is genuinely worse news than an unknown heart
+    // rate, and the model is allowed to say so — what it must never do is treat
+    // "we cannot see this person" as "this person is sitting down".
     fc.assert(
       fc.property(arbProfile, arbReadings, (profile, raw) => {
         const withHr = derivePhysiology({
           profile,
-          readings: { ...raw, hrBpm: raw.hrBpm ?? 120 },
+          readings: { ...raw, hrBpm: 55 },
           timestamps: FRESH_TIMESTAMPS,
           carryOver: carryOver(),
           observedAtMs: NOW_MS,
@@ -498,6 +574,12 @@ describe("physiology pipeline — properties", () => {
         );
         expect(withoutHr.fatiguePct).toBeGreaterThanOrEqual(withHr.fatiguePct);
         expect(withoutHr.coreTempUpdatedAtMs).toBeUndefined();
+        // Uncertainty must widen, and the bound handed downstream must not be
+        // below the point estimate.
+        expect(withoutHr.coreTempSdC).toBeGreaterThanOrEqual(withHr.coreTempSdC);
+        expect(withoutHr.coreTempUpperBoundC).toBeGreaterThanOrEqual(
+          withoutHr.coreTempC,
+        );
       }),
     );
   });
@@ -512,14 +594,18 @@ describe("architectural boundary after wiring", () => {
     readFileSync(join(process.cwd(), ...parts), "utf8");
 
   it("lib/risk still imports nothing from lib/physiology", () => {
+    // Prose may reference the physiology models — engine.ts documents that the
+    // SCBA parameter is shared with them. The rule is that no *import* crosses.
     for (const file of ["engine.ts", "config.ts", "types.ts", "bands.ts", "index.ts", "default-config.ts"]) {
       const source = read("lib", "risk", file);
-      expect(source, `lib/risk/${file}`).not.toMatch(/physiology/i);
+      expect(source, `lib/risk/${file}`).not.toMatch(
+        /(import|from)\s+["'][^"']*physiology/i,
+      );
     }
   });
 
   it("lib/physiology still imports nothing from lib/risk", () => {
-    for (const file of ["cardiac.ts", "heat-strain.ts", "core-temp.ts", "fatigue.ts", "toxic-exposure.ts", "config.ts", "types.ts"]) {
+    for (const file of ["cardiac.ts", "heat-strain.ts", "core-temp-kalman.ts", "fatigue.ts", "toxic-exposure.ts", "config.ts", "types.ts"]) {
       const source = read("lib", "physiology", file);
       expect(source, `lib/physiology/${file}`).not.toMatch(/from\s+["'].*risk/);
     }
@@ -533,7 +619,7 @@ describe("architectural boundary after wiring", () => {
 
   it("neither model module reads the clock or uses randomness", () => {
     for (const dir of ["risk", "physiology"]) {
-      for (const file of ["engine.ts", "cardiac.ts", "heat-strain.ts", "core-temp.ts", "fatigue.ts", "toxic-exposure.ts"]) {
+      for (const file of ["engine.ts", "cardiac.ts", "heat-strain.ts", "core-temp-kalman.ts", "fatigue.ts", "toxic-exposure.ts"]) {
         let source: string;
         try {
           source = read("lib", dir, file);

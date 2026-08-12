@@ -1,0 +1,16 @@
+{
+  "modelVersion": "valoris-shared-0.1.0",
+  "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. Parameters here describe ONE physical quantity used by MORE THAN ONE model. They are defined here so that risk scoring and physiology modelling cannot hold two different values for the same thing. A model config that redefines any name below is rejected at load.",
+  "parameters": {
+    "scba_inhaled_fraction_on_air": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "PROVISIONAL. Fraction of ambient airborne contaminant still inhaled while on air, covering facepiece leakage, seal quality and mask removal for communication. Previously held as two different values for the same quantity: 0.25 in the risk config and 0.05 in the physiology config, a five-fold disagreement. Unified here at the MORE CONSERVATIVE of the two pending clinical review. Deliberately never zero: Valoris cannot verify mask seal, cylinder contents or wear compliance, so it never credits complete protection. See docs/CLINICAL_ASSUMPTIONS.md item 17.",
+      "min": 0.01,
+      "max": 1,
+      "editable": true
+    }
+  }
+}

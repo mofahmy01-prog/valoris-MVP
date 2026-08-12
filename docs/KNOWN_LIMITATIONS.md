@@ -201,6 +201,41 @@ engine change is needed before then.
     sweat exceeds what can be produced. Flagged for physician review before any
     number derived from this rate is shown to a commander.
 
+## The core temperature estimator is heart-rate-only
+
+25. **Ambient conditions no longer affect the core temperature estimate at all.**
+    The published sequential Kalman estimator takes heart rate and nothing else.
+    Two firefighters with the same heart rate get the same core temperature
+    estimate whether they are standing in 20 °C or 60 °C, in PPE or out of it.
+
+    This replaced an invented blend of heat storage and cardiac strain, which
+    *did* respond to environment but could be pointed at no source. The trade was
+    deliberate: citable provenance in exchange for a narrower input set. The heat
+    balance still runs and is reported alongside — heat storage, sweat rate,
+    allowable duration — it is simply no longer folded into the temperature
+    estimate, because doing so would corrupt the published model.
+
+26. **Core temperature is no longer personalised.** Same heart rate, same
+    estimate, regardless of age, fitness or heat tolerance. Personalisation of
+    core temperature now lives entirely in the **limits** the estimate is compared
+    against: the personalised PHS duration ceiling and the personalised override
+    threshold. A test pins the identical-estimate behaviour so that anything
+    quietly folding profile data back into the published model becomes visible.
+
+27. **The Kalman coefficient values are an unverified transcription.** They are
+    marked `literature_derived` with a citation, and every rationale says
+    UNVERIFIED. They drive every core temperature in the system. See
+    `docs/CLINICAL_ASSUMPTIONS.md` reference [2] — this is the single highest
+    priority verification item in the build.
+
+28. **Live confidence now caps at `medium`, never `high`.** Declaring core
+    temperature estimated costs a confidence step, and nothing in Valoris measures
+    core temperature, so every assessment produced through the live pipeline is at
+    best `medium`. This is intended: reporting `high` confidence on a score whose
+    physiological component rests on an unvalidated estimate was overclaiming. It
+    does mean `high` is unreachable in practice, which makes the top of the
+    confidence scale currently decorative.
+
 ## Scope
 
 16. **No autonomous action, ever.** Valoris recommends. The commander decides.

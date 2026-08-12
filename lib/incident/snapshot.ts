@@ -59,6 +59,10 @@ export type FirefighterSnapshot = {
     coreTempIsModelled: boolean;
     reportedCoreTempC: number | null;
     coreTempLimitC: number | null;
+    /** Estimator uncertainty. This is what reduces risk confidence. */
+    coreTempSdC: number | null;
+    /** False when heart rate was absent and the filter only extrapolated. */
+    coreTempObserved: boolean | null;
     fatiguePct: number | null;
     hrrFraction: number | null;
     effectiveHrReserveBpm: number | null;
@@ -182,6 +186,8 @@ export async function buildIncidentSnapshot(
         coreTempIsModelled: latest.derivedCoreTempC !== null,
         reportedCoreTempC: latest.coreTempC,
         coreTempLimitC: latest.derivedCoreTempLimitC,
+        coreTempSdC: latest.derivedCoreTempSdC,
+        coreTempObserved: latest.derivedCoreTempObserved,
         fatiguePct: latest.derivedFatiguePct,
         hrrFraction: latest.derivedHrrFraction,
         effectiveHrReserveBpm: latest.derivedEffectiveHrReserveBpm,

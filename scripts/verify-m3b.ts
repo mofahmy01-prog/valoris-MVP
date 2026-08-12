@@ -197,8 +197,16 @@ async function main(): Promise<void> {
   const distinctScores = new Set(finals.map((f) => f.score));
   check("six distinct scores from identical raw readings", distinctScores.size === 6, `${distinctScores.size} distinct`);
 
+  // The published Kalman estimator is heart-rate-only, so identical heart rates
+  // give identical core temperature estimates. Personalisation of core
+  // temperature lives in the LIMITS it is compared against, not the estimate.
+  // See docs/KNOWN_LIMITATIONS.md items 25 and 26.
   const distinctCore = new Set(finals.map((f) => f.coreTempC));
-  check("core temperature differs across profiles", distinctCore.size > 1, `${distinctCore.size} distinct`);
+  check(
+    "core temperature is identical across profiles — the estimator is HR-only",
+    distinctCore.size === 1,
+    `${distinctCore.size} distinct`,
+  );
 
   const distinctFatigue = new Set(finals.map((f) => f.fatiguePct));
   check("fatigue differs across profiles", distinctFatigue.size > 1, `${distinctFatigue.size} distinct`);

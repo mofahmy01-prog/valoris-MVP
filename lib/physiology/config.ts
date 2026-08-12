@@ -54,15 +54,21 @@ export const PHYSIOLOGY_PARAM_NAMES = [
   "heat_tolerance_core_limit_shift_c",
   "dlim_horizon_min",
 
-  // --- Core temperature estimation ----------------------------------------
+  // --- Core temperature bounds --------------------------------------------
   "core_temp_baseline_c",
   "core_temp_min_c",
   "core_temp_max_c",
-  "core_temp_weight_heat_storage",
-  "core_temp_weight_cardiac",
-  "core_temp_cardiac_rise_c_per_hour_at_max_hrr",
-  "core_temp_cardiac_hrr_threshold_frac",
-  "core_temp_recovery_c_per_hour",
+
+  // --- Core temperature: sequential Kalman filter from heart rate ---------
+  "kalman_initial_core_temp_c",
+  "kalman_initial_variance_c2",
+  "kalman_variance_growth_c2_per_min",
+  "kalman_observation_variance_bpm2",
+  "kalman_hr_intercept_b0",
+  "kalman_hr_linear_b1",
+  "kalman_hr_quadratic_b2",
+  "core_temp_estimate_sd_confidence_drop_c",
+  "core_temp_upper_bound_sd_multiple",
 
   // --- Fatigue accumulation -----------------------------------------------
   "fatigue_accum_pct_per_hour_at_max_hrr",
@@ -103,11 +109,15 @@ export function physParam(
   return p.value;
 }
 
-export function loadPhysiologyConfig(raw: unknown): PhysiologyConfig {
+export function loadPhysiologyConfig(
+  raw: unknown,
+  shared?: Record<string, ConfigParameter>,
+): PhysiologyConfig {
   return loadNamedParameters(
     "physiology config",
     raw,
     PHYSIOLOGY_PARAM_NAMES,
+    shared,
   );
 }
 

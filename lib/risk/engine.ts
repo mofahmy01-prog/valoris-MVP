@@ -481,8 +481,10 @@ function environmental(
 
   // On air, inhalation hazards are attenuated but never eliminated — this
   // system cannot verify mask seal or filter state.
+  // Shared with the physiology toxic model — one value for one physical
+  // quantity, owned by config/shared-default.json.
   const protection = pos.scbaOnAir
-    ? clamp(param(config, "scba_inhalation_protection_factor"), 0, 1)
+    ? clamp(param(config, "scba_inhaled_fraction_on_air"), 0, 1)
     : 1;
 
   const coRaw = co === null ? MAX_SUBSCORE : ramp(co, th.coLowPpm, th.coHighPpm);
@@ -820,7 +822,20 @@ function hardOverrides(
 /* Confidence and banding                                                      */
 /* -------------------------------------------------------------------------- */
 
-function deriveConfidence(freshness: Freshness): Confidence {
+/**
+ * Confidence reflects how much the inputs can be trusted, not how bad they are.
+ *
+ * Beyond staleness and absence, an ESTIMATED core temperature caps confidence
+ * below `high`: a value modelled from heart rate can be wrong for a given
+ * individual in a way a measurement cannot, and reporting `high` confidence on
+ * top of it would overstate the evidence. If the estimator also reports a
+ * standard deviation above the configured threshold, confidence drops again.
+ */
+function deriveConfidence(
+  freshness: Freshness,
+  vitals: Vitals,
+  config: RiskConfig,
+): Confidence {
   const criticalMissing = freshness.missing.some((k) =>
     CRITICAL_CHANNELS.includes(k),
   );
@@ -829,6 +844,21 @@ function deriveConfidence(freshness: Freshness): Confidence {
   let confidence: Confidence = "high";
   if (freshness.missing.length > 0) confidence = degradeConfidence(confidence, 1);
   if (freshness.stale.length >= 2) confidence = degradeConfidence(confidence, 1);
+
+  if (vitals.coreTempIsEstimated === true) {
+    // An estimate is never grounds for full confidence.
+    confidence = degradeConfidence(confidence, 1);
+
+    const sd = vitals.coreTempEstimateSdC;
+    if (
+      typeof sd === "number" &&
+      Number.isFinite(sd) &&
+      sd > param(config, "estimated_core_temp_sd_confidence_drop_c")
+    ) {
+      confidence = degradeConfidence(confidence, 1);
+    }
+  }
+
   return confidence;
 }
 
@@ -947,7 +977,7 @@ export function assessRisk(
   const overrideReasons = hardOverrides(vitals, pos, freshness, th, config);
   const hardOverride = overrideReasons.length > 0;
 
-  const confidence = deriveConfidence(freshness);
+  const confidence = deriveConfidence(freshness, vitals, config);
   const criticalMissing = freshness.missing.some((k) =>
     CRITICAL_CHANNELS.includes(k),
   );

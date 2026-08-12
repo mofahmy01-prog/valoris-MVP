@@ -187,6 +187,12 @@ model Observation {
   // stored assessment can always be traced back to which number was used.
   derivedCoreTempC             Float?
   derivedCoreTempUpdatedAtUtc  DateTime?
+  /// Kalman filter variance and standard deviation for the core temperature
+  /// estimate. The variance must be carried between ticks or the filter's
+  /// uncertainty silently resets; the SD is what reduces risk confidence.
+  derivedCoreTempVarianceC2    Float?
+  derivedCoreTempSdC           Float?
+  derivedCoreTempObserved      Boolean?
   derivedFatiguePct            Float?
   derivedFatigueUpdatedAtUtc   DateTime?
   derivedHrrFraction           Float?

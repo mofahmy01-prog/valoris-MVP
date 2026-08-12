@@ -30,7 +30,21 @@ export type ConfigParameter = {
   min: number;
   max: number;
   editable: boolean;
+  /**
+   * Reference into the numbered list in docs/CLINICAL_ASSUMPTIONS.md, e.g.
+   * "ref [2]". MANDATORY when `sourceStatus` is `literature_derived` or
+   * `validated` — a claim that a value comes from the literature is worthless
+   * without pointing at which literature. Honesty rule 8: cite every model, no
+   * fabricated references.
+   */
+  citation?: string;
 };
+
+/** Statuses that may not be claimed without a citation. */
+const CITATION_REQUIRED: readonly SourceStatus[] = [
+  "literature_derived",
+  "validated",
+];
 
 const SOURCE_STATUSES: readonly SourceStatus[] = [
   "illustrative",
@@ -148,6 +162,21 @@ export function readParameter(
     fail(`parameter "${name}" value ${value} is outside [${min}, ${max}]`);
   }
 
+  const rawCitation = r["citation"];
+  if (rawCitation !== undefined && typeof rawCitation !== "string") {
+    fail(`parameter "${name}" has a non-string "citation"`);
+  }
+  const citation =
+    typeof rawCitation === "string" && rawCitation.trim() !== ""
+      ? rawCitation.trim()
+      : undefined;
+
+  if (CITATION_REQUIRED.includes(source as SourceStatus) && citation === undefined) {
+    fail(
+      `parameter "${name}" claims sourceStatus "${String(source)}" but carries no citation. A literature claim without a reference is not a literature claim.`,
+    );
+  }
+
   return {
     name,
     value,
@@ -158,6 +187,7 @@ export function readParameter(
     min,
     max,
     editable: r["editable"] as boolean,
+    ...(citation === undefined ? {} : { citation }),
   };
 }
 
@@ -176,6 +206,12 @@ export function loadNamedParameters<Name extends string>(
   context: string,
   raw: unknown,
   names: readonly Name[],
+  /**
+   * Parameters owned by a shared config, for quantities used by more than one
+   * model. A name may be defined in the shared config OR the local one, never
+   * both — shadowing is how two values for one physical quantity drift apart.
+   */
+  shared?: Record<string, ConfigParameter>,
 ): LoadedParameters<Name> {
   const fail = (message: string): never => failConfig(context, message);
 
@@ -196,10 +232,20 @@ export function loadNamedParameters<Name extends string>(
   const known = new Set<string>(names);
   for (const key of Object.keys(paramsRecord)) {
     if (!known.has(key)) fail(`unknown parameter "${key}"`);
+    if (shared?.[key] !== undefined) {
+      fail(
+        `parameter "${key}" is owned by the shared config and must not be redefined locally`,
+      );
+    }
   }
 
   const parameters = {} as Record<Name, ConfigParameter>;
   for (const name of names) {
+    const fromShared = shared?.[name];
+    if (fromShared !== undefined) {
+      parameters[name] = fromShared;
+      continue;
+    }
     const entry = paramsRecord[name];
     if (entry === undefined) fail(`missing parameter "${name}"`);
     parameters[name] = readParameter(context, name, entry);

@@ -109,6 +109,17 @@ export function toVitals(
   if (recentSpo2Pct !== undefined && recentSpo2Pct.length > 0) {
     vitals.recentSpo2Pct = recentSpo2Pct;
   }
+
+  // Declare that core temperature is modelled, not measured, and hand over the
+  // estimator's own uncertainty. The risk engine uses both to cap confidence:
+  // an estimate is weaker evidence than a measurement, and a wide estimate is
+  // weaker still. Nothing in Valoris measures core temperature, so whenever a
+  // derivation exists this is always true.
+  if (row.derivedCoreTempC !== null) {
+    vitals.coreTempIsEstimated = true;
+    vitals.coreTempEstimateSdC = row.derivedCoreTempSdC;
+  }
+
   return vitals;
 }
 

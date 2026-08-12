@@ -23,6 +23,16 @@
       "editable": true
     },
 
+    "estimated_core_temp_sd_confidence_drop_c": {
+      "value": 0.35,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Standard deviation of an estimated core temperature above which confidence drops a further step, on top of the cap that any estimate already imposes. Mirrors core_temp_estimate_sd_confidence_drop_c in the physiology config; the two are consulted by different layers and should be reviewed together.",
+      "min": 0.05,
+      "max": 2,
+      "editable": true
+    },
     "band_safe_max_score": {
       "value": 25,
       "unit": "score",
@@ -437,17 +447,6 @@
       "max": 4,
       "editable": true
     },
-    "scba_inhalation_protection_factor": {
-      "value": 0.25,
-      "unit": "fraction",
-      "sourceStatus": "illustrative",
-      "clinicalReviewStatus": "unreviewed",
-      "rationale": "Multiplier applied to inhalation hazards (CO, PM2.5) while the wearer is on air. Never zero: seal integrity is not verifiable by this system.",
-      "min": 0,
-      "max": 1,
-      "editable": true
-    },
-
     "prox_weight_fire_distance": {
       "value": 0.4,
       "unit": "fraction",

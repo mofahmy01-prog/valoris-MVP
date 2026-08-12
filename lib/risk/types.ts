@@ -48,6 +48,25 @@ export type Vitals = {
    * override. See docs/CLINICAL_ASSUMPTIONS.md.
    */
   recentSpo2Pct?: number[];
+
+  /**
+   * True when `coreTempC` came from a model rather than a sensor.
+   *
+   * An estimate that can be wrong for a given individual is weaker evidence than
+   * a measurement, so declaring it caps data-quality confidence below `high`.
+   * Optional and defaulting to false so a caller supplying a genuinely measured
+   * core temperature is not penalised — but note that nothing in Valoris measures
+   * core temperature, so the composition layer always sets this true.
+   */
+  coreTempIsEstimated?: boolean;
+
+  /**
+   * Standard deviation of the core temperature estimate, °C, where the estimator
+   * reports one. Above a configured threshold, confidence drops a further step.
+   * This is how a heart-rate dropout degrades confidence through the estimator's
+   * own growing variance rather than through a special case.
+   */
+  coreTempEstimateSdC?: number | null;
 };
 
 export type Environment = {

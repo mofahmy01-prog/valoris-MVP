@@ -36,10 +36,11 @@ import {
   accumulateToxicExposure,
   assessCardiacStrain,
   assessHeatStrain,
-  estimateCoreTemp,
+  estimateCoreTempKalman,
   inferMetabolicRateWm2,
   personalCoreTempLimitC,
   physParam,
+  type CoreTempFilterState,
   type PhysiologyConfig,
   type Subject,
   type WorkContext,
@@ -76,6 +77,12 @@ export type ReadingTimestamps = {
 /** Carried forward from the previous tick for this firefighter. */
 export type PhysiologyCarryOver = {
   coreTempC: number | null;
+  /**
+   * Variance of the core temperature estimate carried from the previous tick.
+   * The Kalman filter needs both the estimate and its variance; carrying only
+   * the estimate would silently reset the filter's uncertainty every tick.
+   */
+  coreTempVarianceC2: number | null;
   fatiguePct: number | null;
   cohbPct: number | null;
   pm25DoseUgMinM3: number | null;
@@ -88,6 +95,7 @@ export type PhysiologyCarryOver = {
 
 export const EMPTY_CARRY_OVER: PhysiologyCarryOver = {
   coreTempC: null,
+  coreTempVarianceC2: null,
   fatiguePct: null,
   cohbPct: null,
   pm25DoseUgMinM3: null,
@@ -113,6 +121,15 @@ export type PhysiologyDerivation = {
    * cannot be aged, in which case the engine treats it as missing.
    */
   coreTempUpdatedAtMs: number | undefined;
+  /** Variance of the estimate, to carry into the next tick. */
+  coreTempVarianceC2: number;
+  /** Standard deviation of the estimate, °C. Drives the confidence reduction. */
+  coreTempSdC: number;
+  /** False when heart rate was absent and only the filter's time update ran. */
+  coreTempObservationApplied: boolean;
+  /** Upper confidence bound used by safety-relevant downstream models. */
+  coreTempUpperBoundC: number;
+
   /** What the risk engine will consume as `fatiguePct`. */
   fatiguePct: number;
   fatigueUpdatedAtMs: number | undefined;
@@ -250,13 +267,22 @@ export function derivePhysiology(
   );
   caveats.push(...heat.provenance.caveats);
 
-  /* --- 4. Core temperature estimate -------------------------------------- */
-  const coreTemp = estimateCoreTemp(
+  /* --- 4. Core temperature estimate — sequential Kalman filter ----------- */
+  // Heart-rate-only by design. The heat balance above is reported alongside
+  // rather than folded in, so the published model is not corrupted.
+  const previousState: CoreTempFilterState | null =
+    carryOver.coreTempC === null || carryOver.coreTempVarianceC2 === null
+      ? null
+      : {
+          coreTempC: carryOver.coreTempC,
+          varianceC2: carryOver.coreTempVarianceC2,
+        };
+
+  const coreTemp = estimateCoreTempKalman(
     {
       subject,
-      previousCoreTempC: carryOver.coreTempC,
-      heatStorageWm2: heat.heatStorageWm2,
-      hrrFraction: cardiac.hrrFraction,
+      previousState,
+      hrBpm: readings.hrBpm,
       elapsedMin: stepMinutes,
     },
     config,
@@ -264,18 +290,39 @@ export function derivePhysiology(
   caveats.push(...coreTemp.provenance.caveats);
 
   /* --- 5. Fatigue -------------------------------------------------------- */
+  // Fatigue's heat multiplier uses an UPPER CONFIDENCE BOUND on core
+  // temperature, not the point estimate.
+  //
+  // The Kalman filter holds its estimate steady when heart rate drops out and
+  // grows the variance instead. Feeding the point estimate downstream would mean
+  // a dropout made fatigue accumulation *less* pessimistic just as the data got
+  // worse — the same failure mode as a missing reading scoring as safe. Using
+  // estimate + n·SD keeps "worse data is never rewarded" true through the whole
+  // chain, and the multiple is a named, reviewable parameter.
+  const coreTempUpperBoundC = Math.min(
+    physParam(config, "core_temp_max_c"),
+    coreTemp.coreTempC +
+      physParam(config, "core_temp_upper_bound_sd_multiple") *
+        coreTemp.standardDeviationC,
+  );
+
   const fatigue = accumulateFatigue(
     {
       subject,
       previousFatiguePct: carryOver.fatiguePct,
       hrrFraction: cardiac.hrrFraction,
-      coreTempC: coreTemp.coreTempC,
+      coreTempC: coreTempUpperBoundC,
       coreTempLimitC: personalCoreTempLimitC(subject, config),
       elapsedMin: stepMinutes,
     },
     config,
   );
   caveats.push(...fatigue.provenance.caveats);
+  if (coreTempUpperBoundC > coreTemp.coreTempC) {
+    caveats.push(
+      `Downstream models used an upper confidence bound of ${coreTempUpperBoundC.toFixed(2)} C rather than the ${coreTemp.coreTempC.toFixed(2)} C point estimate, because the estimate carries uncertainty.`,
+    );
+  }
 
   /* --- 6. Toxic exposure ------------------------------------------------- */
   const toxic = accumulateToxicExposure(
@@ -313,6 +360,10 @@ export function derivePhysiology(
   return {
     coreTempC: coreTemp.coreTempC,
     coreTempUpdatedAtMs,
+    coreTempVarianceC2: coreTemp.state.varianceC2,
+    coreTempSdC: coreTemp.standardDeviationC,
+    coreTempObservationApplied: coreTemp.observationApplied,
+    coreTempUpperBoundC: Math.round(coreTempUpperBoundC * 100) / 100,
     fatiguePct: fatigue.fatiguePct,
     fatigueUpdatedAtMs,
 

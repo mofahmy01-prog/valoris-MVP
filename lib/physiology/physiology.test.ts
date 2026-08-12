@@ -9,7 +9,11 @@ import {
   inferMetabolicRateWm2,
 } from "./cardiac";
 import { loadPhysiologyConfig, PHYSIOLOGY_PARAM_NAMES, physParam } from "./config";
-import { estimateCoreTemp } from "./core-temp";
+import {
+  estimateCoreTempKalman,
+  expectedHeartRateBpm,
+  initialCoreTempFilterState,
+} from "./core-temp-kalman";
 import { DEFAULT_PHYSIOLOGY_CONFIG } from "./default-config";
 import { accumulateFatigue, prevShiftCarryOverPct } from "./fatigue";
 import {
@@ -82,17 +86,33 @@ function context(over: Partial<WorkContext> = {}): WorkContext {
 /* -------------------------------------------------------------------------- */
 
 describe("physiology configuration", () => {
-  it("ships every parameter as illustrative and unreviewed", () => {
+  it("ships nothing as validated, and every literature claim carries a citation", () => {
     expect(Object.keys(CONFIG.parameters)).toHaveLength(
       PHYSIOLOGY_PARAM_NAMES.length,
     );
     for (const p of Object.values(CONFIG.parameters)) {
-      expect(p.sourceStatus).toBe("illustrative");
+      // Only two statuses are permitted in this build: invented, or published.
+      expect(["illustrative", "literature_derived"]).toContain(p.sourceStatus);
       expect(p.clinicalReviewStatus).toBe("unreviewed");
       expect(p.rationale.trim().length).toBeGreaterThan(0);
       expect(p.unit.trim().length).toBeGreaterThan(0);
       expect(p.value).toBeGreaterThanOrEqual(p.min);
       expect(p.value).toBeLessThanOrEqual(p.max);
+      if (p.sourceStatus === "literature_derived") {
+        expect(p.citation, `${p.name} claims literature without a citation`).toMatch(
+          /ref \[\d+\]/,
+        );
+      } else {
+        // An invented number must not carry a citation implying otherwise.
+        expect(p.citation).toBeUndefined();
+      }
+    }
+  });
+
+  it("never marks anything validated", () => {
+    for (const p of Object.values(CONFIG.parameters)) {
+      expect(p.sourceStatus).not.toBe("validated");
+      expect(p.clinicalReviewStatus).not.toBe("approved_for_pilot");
     }
   });
 
@@ -434,110 +454,172 @@ describe("reduced ISO 7933 heat strain", () => {
 });
 
 /* -------------------------------------------------------------------------- */
-/* Core temperature estimation                                                 */
+/* Core temperature — sequential Kalman filter                                 */
 /* -------------------------------------------------------------------------- */
 
-describe("core temperature estimation", () => {
-  const estimate = (
-    over: Partial<Parameters<typeof estimateCoreTemp>[0]> = {},
-  ) =>
-    estimateCoreTemp(
+describe("core temperature Kalman filter", () => {
+  const run = (over: Partial<Parameters<typeof estimateCoreTempKalman>[0]> = {}) =>
+    estimateCoreTempKalman(
       {
         subject: ALPHA_1,
-        previousCoreTempC: 37.2,
-        heatStorageWm2: 40,
-        hrrFraction: 0.6,
-        elapsedMin: 10,
+        previousState: { coreTempC: 37.2, varianceC2: 0.01 },
+        hrBpm: 150,
+        elapsedMin: 5,
         ...over,
       },
       CONFIG,
     );
 
-  it("always declares itself estimated, never measured", () => {
-    const r = estimate();
+  it("is deterministic — nothing is fitted at runtime", () => {
+    expect(run()).toEqual(run());
+  });
+
+  it("declares itself estimated and names its unverified coefficients", () => {
+    const r = run();
     expect(r.provenance.estimated).toBe(true);
-    expect(r.provenance.modelLabel).toContain("ESTIMATED not measured");
-    expect(r.provenance.caveats.join(" ")).toContain("No core temperature sensor");
+    expect(r.provenance.modelKey).toBe("core_temp_kalman_hr_v1");
+    const caveats = r.provenance.caveats.join(" ");
+    expect(caveats).toContain("ESTIMATED, not measured");
+    expect(caveats).toContain("UNVERIFIED transcription");
+    expect(caveats).toContain("firefighter-in-PPE validated");
+    expect(caveats).toContain("Heart-rate-only");
   });
 
-  it("rises with positive heat storage", () => {
-    const low = estimate({ heatStorageWm2: 5 });
-    const high = estimate({ heatStorageWm2: 90 });
-    expect(high.coreTempC).toBeGreaterThan(low.coreTempC);
-    expect(high.contributions.heatStorageC).toBeGreaterThan(
-      low.contributions.heatStorageC,
+  it("every Kalman parameter is literature_derived with a citation, never validated", () => {
+    const kalmanParams = Object.values(CONFIG.parameters).filter((p) =>
+      p.name.startsWith("kalman_"),
+    );
+    expect(kalmanParams.length).toBeGreaterThan(0);
+    for (const p of kalmanParams) {
+      expect(p.sourceStatus).toBe("literature_derived");
+      expect(p.clinicalReviewStatus).toBe("unreviewed");
+      expect(p.citation).toBeDefined();
+      expect(p.citation).toMatch(/ref \[\d+\]/);
+      expect(p.rationale).toContain("UNVERIFIED");
+    }
+  });
+
+  it("raises the estimate when heart rate exceeds what the model expects", () => {
+    const expected = expectedHeartRateBpm(37.2, CONFIG);
+    const above = run({ hrBpm: expected + 25 });
+    const below = run({ hrBpm: expected - 25 });
+    expect(above.coreTempC).toBeGreaterThan(37.2);
+    expect(below.coreTempC).toBeLessThan(37.2);
+  });
+
+  it("does not move the estimate when the reading matches the prediction", () => {
+    const r = run({ hrBpm: expectedHeartRateBpm(37.2, CONFIG) });
+    expect(r.coreTempC).toBeCloseTo(37.2, 2);
+  });
+
+  it("shrinks variance when an observation arrives", () => {
+    const r = run({ previousState: { coreTempC: 37.2, varianceC2: 0.05 } });
+    expect(r.observationApplied).toBe(true);
+    expect(r.state.varianceC2).toBeLessThan(0.05);
+    expect(r.gain).toBeGreaterThan(0);
+  });
+
+  it("grows variance when heart rate is unavailable — a dropout degrades itself", () => {
+    const short = run({ hrBpm: null, elapsedMin: 5 });
+    const long = run({ hrBpm: null, elapsedMin: 60 });
+    expect(short.observationApplied).toBe(false);
+    expect(short.gain).toBe(0);
+    // The estimate persists; only its uncertainty changes.
+    expect(short.coreTempC).toBe(37.2);
+    expect(long.coreTempC).toBe(37.2);
+    expect(long.state.varianceC2).toBeGreaterThan(short.state.varianceC2);
+    expect(long.standardDeviationC).toBeGreaterThan(short.standardDeviationC);
+  });
+
+  it("reports a standard deviation that grows past the confidence threshold on a long dropout", () => {
+    const threshold = physParam(CONFIG, "core_temp_estimate_sd_confidence_drop_c");
+    const brief = run({ hrBpm: null, elapsedMin: 1 });
+    expect(brief.standardDeviationC).toBeLessThan(threshold);
+    const prolonged = run({
+      hrBpm: null,
+      elapsedMin: 600,
+      previousState: { coreTempC: 37.2, varianceC2: 0.05 },
+    });
+    expect(prolonged.standardDeviationC).toBeGreaterThan(threshold);
+  });
+
+  it("starts from the configured initial state and says so", () => {
+    const r = run({ previousState: null });
+    expect(r.provenance.caveats.join(" ")).toContain(
+      "started from the configured initial estimate",
     );
   });
 
-  it("rises with cardiac strain above the threshold and not below it", () => {
-    const below = estimate({
-      hrrFraction: physParam(CONFIG, "core_temp_cardiac_hrr_threshold_frac") - 0.05,
-    });
-    const above = estimate({ hrrFraction: 0.9 });
-    expect(below.contributions.cardiacC).toBe(0);
-    expect(above.contributions.cardiacC).toBeGreaterThan(0);
-  });
-
-  it("recovers toward baseline only when shedding heat at low exertion", () => {
-    const recovering = estimate({
-      previousCoreTempC: 38.4,
-      heatStorageWm2: -30,
-      hrrFraction: 0.1,
-      elapsedMin: 30,
-    });
-    expect(recovering.contributions.recoveryC).toBeLessThan(0);
-    expect(recovering.coreTempC).toBeLessThan(38.4);
-
-    const notRecovering = estimate({
-      previousCoreTempC: 38.4,
-      heatStorageWm2: 20,
-      hrrFraction: 0.1,
-      elapsedMin: 30,
-    });
-    expect(notRecovering.contributions.recoveryC).toBe(0);
-  });
-
-  it("never recovers below the configured baseline", () => {
-    const r = estimate({
-      previousCoreTempC: 37.0,
-      heatStorageWm2: -100,
-      hrrFraction: 0,
-      elapsedMin: 120,
-    });
-    expect(r.coreTempC).toBeGreaterThanOrEqual(
-      physParam(CONFIG, "core_temp_baseline_c") - 1e-9,
-    );
-  });
-
-  it("is pessimistic when heart rate is unavailable", () => {
-    const known = estimate({ hrrFraction: 0.4 });
-    const unknown = estimate({ hrrFraction: null });
-    expect(unknown.contributions.cardiacC).toBeGreaterThan(
-      known.contributions.cardiacC,
-    );
-    expect(unknown.provenance.caveats.join(" ")).toContain("deliberately pessimistic");
-  });
-
-  it("starts from the configured baseline and says so", () => {
-    const r = estimate({ previousCoreTempC: null, heatStorageWm2: 0, hrrFraction: 0.1 });
-    expect(r.provenance.caveats.join(" ")).toContain("started from the configured baseline");
-  });
-
-  it("clamps to physiological bounds and reports the clamp", () => {
-    const r = estimate({
-      previousCoreTempC: 41.9,
-      heatStorageWm2: 500,
-      hrrFraction: 1,
-      elapsedMin: 240,
+  it("clamps to physiological bounds", () => {
+    const r = run({
+      previousState: { coreTempC: 41.9, varianceC2: 5 },
+      hrBpm: 220,
+      elapsedMin: 60,
     });
     expect(r.coreTempC).toBeLessThanOrEqual(physParam(CONFIG, "core_temp_max_c"));
-    expect(r.clamped).toBe(true);
-    expect(r.provenance.caveats.join(" ")).toContain("clamped");
+    expect(r.coreTempC).toBeGreaterThanOrEqual(physParam(CONFIG, "core_temp_min_c"));
   });
 
-  it("does not change over a zero-length step", () => {
-    const r = estimate({ elapsedMin: 0 });
-    expect(r.deltaC).toBe(0);
+  it("never returns a negative variance", () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: 30, max: 230, noNaN: true }),
+        fc.double({ min: 0, max: 5, noNaN: true }),
+        fc.double({ min: 0, max: 300, noNaN: true }),
+        (hrBpm, varianceC2, elapsedMin) => {
+          const r = estimateCoreTempKalman(
+            {
+              subject: ALPHA_1,
+              previousState: { coreTempC: 37.5, varianceC2 },
+              hrBpm,
+              elapsedMin,
+            },
+            CONFIG,
+          );
+          expect(r.state.varianceC2).toBeGreaterThanOrEqual(0);
+          expect(r.standardDeviationC).toBeGreaterThanOrEqual(0);
+          expect(Number.isFinite(r.coreTempC)).toBe(true);
+        },
+      ),
+    );
+  });
+
+  it("stays within configured bounds for any input", () => {
+    fc.assert(
+      fc.property(
+        fc.option(fc.double({ min: 20, max: 260, noNaN: true }), { nil: null }),
+        fc.double({ min: 33, max: 44, noNaN: true }),
+        fc.double({ min: 0, max: 10, noNaN: true }),
+        fc.double({ min: 0, max: 600, noNaN: true }),
+        (hrBpm, coreTempC, varianceC2, elapsedMin) => {
+          const r = estimateCoreTempKalman(
+            {
+              subject: BRAVO_2,
+              previousState: { coreTempC, varianceC2 },
+              hrBpm,
+              elapsedMin,
+            },
+            CONFIG,
+          );
+          expect(r.coreTempC).toBeGreaterThanOrEqual(
+            physParam(CONFIG, "core_temp_min_c"),
+          );
+          expect(r.coreTempC).toBeLessThanOrEqual(physParam(CONFIG, "core_temp_max_c"));
+        },
+      ),
+    );
+  });
+
+  it("is heart-rate-only: environment cannot enter the estimate", () => {
+    // The published model takes no environmental input. Pinned so a future
+    // change that quietly folds heat balance back in becomes visible.
+    const source = readFileSync(
+      join(process.cwd(), "lib", "physiology", "core-temp-kalman.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/ambientTempC/);
+    expect(source).not.toMatch(/humidityPct/);
+    expect(source).not.toMatch(/heatStorageWm2/);
   });
 });
 
@@ -819,12 +901,14 @@ describe("physiology model properties", () => {
         arbHrr,
         arbElapsed,
         (subject, storage, hrr, mins) => {
-          const r = estimateCoreTemp(
+          // `storage` is retained in the generator to keep the shrinking search
+          // space stable; the Kalman filter takes no heat-storage input.
+          void storage;
+          const r = estimateCoreTempKalman(
             {
               subject,
-              previousCoreTempC: 37.5,
-              heatStorageWm2: storage,
-              hrrFraction: hrr,
+              previousState: { coreTempC: 37.5, varianceC2: 0.02 },
+              hrBpm: hrr === null ? null : 60 + hrr * 120,
               elapsedMin: mins,
             },
             CONFIG,
@@ -923,8 +1007,13 @@ describe("physiology model properties", () => {
             { subject, context: ctx, metabolicRateWm2: 300, currentCoreTempC: 37.4 },
             CONFIG,
           ).provenance,
-          estimateCoreTemp(
-            { subject, previousCoreTempC: 37.4, heatStorageWm2: 30, hrrFraction: hrr, elapsedMin: 10 },
+          estimateCoreTempKalman(
+            {
+              subject,
+              previousState: initialCoreTempFilterState(CONFIG),
+              hrBpm: hrr === null ? null : 60 + hrr * 120,
+              elapsedMin: 10,
+            },
             CONFIG,
           ).provenance,
           accumulateFatigue(
@@ -957,7 +1046,7 @@ describe("physiology module boundaries", () => {
     "config.ts",
     "cardiac.ts",
     "heat-strain.ts",
-    "core-temp.ts",
+    "core-temp-kalman.ts",
     "fatigue.ts",
     "toxic-exposure.ts",
   ];

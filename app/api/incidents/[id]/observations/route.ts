@@ -192,6 +192,7 @@ export async function POST(
         ? EMPTY_CARRY_OVER
         : {
             coreTempC: previousObservation.derivedCoreTempC,
+            coreTempVarianceC2: previousObservation.derivedCoreTempVarianceC2,
             fatiguePct: previousObservation.derivedFatiguePct,
             cohbPct: previousObservation.derivedCohbPct,
             pm25DoseUgMinM3: previousObservation.derivedPm25DoseUgMinM3,
@@ -255,6 +256,9 @@ export async function POST(
           physiology.coreTempUpdatedAtMs === undefined
             ? null
             : new Date(physiology.coreTempUpdatedAtMs),
+        derivedCoreTempVarianceC2: physiology.coreTempVarianceC2,
+        derivedCoreTempSdC: physiology.coreTempSdC,
+        derivedCoreTempObserved: physiology.coreTempObservationApplied,
         derivedFatiguePct: physiology.fatiguePct,
         derivedFatigueUpdatedAtUtc:
           physiology.fatigueUpdatedAtMs === undefined

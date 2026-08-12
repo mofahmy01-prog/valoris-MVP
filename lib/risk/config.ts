@@ -8,11 +8,16 @@
  * No imports other than types. See lib/risk/types.ts for why.
  */
 
-import type {
-  ClinicalReviewStatus,
-  RiskParameter,
-  SourceStatus,
-} from "./types";
+import {
+  canonicalJson as canonicalJsonShared,
+  computeParametersHash,
+  loadNamedParameters,
+} from "../params/parameters";
+import type { RiskParameter } from "./types";
+
+/** Re-exported so existing callers and the model assumptions panel keep working. */
+export const canonicalJson = canonicalJsonShared;
+export const computeConfigHash = computeParametersHash;
 
 /**
  * The complete set of named parameters. The engine may only read names from
@@ -22,6 +27,7 @@ export const PARAM_NAMES = [
   // --- Data freshness -----------------------------------------------------
   "stale_after_sec",
   "missing_after_sec",
+  "estimated_core_temp_sd_confidence_drop_c",
 
   // --- Band cut-offs ------------------------------------------------------
   "band_safe_max_score",
@@ -73,7 +79,9 @@ export const PARAM_NAMES = [
   "ambient_temp_high_c",
   "humidity_reference_pct",
   "humidity_heat_penalty_c_per_10pct",
-  "scba_inhalation_protection_factor",
+  // Owned by config/shared-default.json — the same physical quantity the
+  // physiology toxic model uses. Must not be redefined in risk-default.json.
+  "scba_inhaled_fraction_on_air",
 
   // --- Proximity ----------------------------------------------------------
   "prox_weight_fire_distance",
@@ -124,21 +132,6 @@ export type RiskConfig = {
   parameters: Record<ParamName, RiskParameter>;
 };
 
-const SOURCE_STATUSES: readonly SourceStatus[] = [
-  "illustrative",
-  "literature_derived",
-  "expert_proposed",
-  "validated",
-];
-
-const REVIEW_STATUSES: readonly ClinicalReviewStatus[] = [
-  "unreviewed",
-  "under_review",
-  "approved_for_simulation",
-  "approved_for_pilot",
-  "rejected",
-];
-
 /** Read a named parameter value. Throws if the name is not configured. */
 export function param(config: RiskConfig, name: ParamName): number {
   const p = config.parameters[name];
@@ -149,159 +142,25 @@ export function param(config: RiskConfig, name: ParamName): number {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Canonical serialisation + hash                                            */
-/* ------------------------------------------------------------------------ */
-
-/** Deterministic JSON with object keys sorted, so the hash is stable. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "null";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  const body = keys
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(record[k])}`)
-    .join(",");
-  return `{${body}}`;
-}
-
-/** FNV-1a, 32-bit, expressed with explicit 32-bit arithmetic. */
-function fnv1a32(input: string, offsetBasis: number): number {
-  let hash = offsetBasis >>> 0;
-  for (let i = 0; i < input.length; i += 1) {
-    hash = (hash ^ input.charCodeAt(i)) >>> 0;
-    // hash * 16777619 without overflowing the float mantissa
-    hash =
-      (((hash << 24) >>> 0) +
-        ((hash << 8) >>> 0) +
-        ((hash << 7) >>> 0) +
-        ((hash << 4) >>> 0) +
-        ((hash << 1) >>> 0) +
-        hash) >>>
-      0;
-  }
-  return hash >>> 0;
-}
-
-function hex8(n: number): string {
-  return (n >>> 0).toString(16).padStart(8, "0");
-}
-
-/**
- * Hash of the values that actually change engine behaviour: the model version
- * and every parameter's numeric value. Two configs with the same hash produce
- * the same outputs.
- */
-export function computeConfigHash(
-  modelVersion: string,
-  parameters: Record<string, RiskParameter>,
-): string {
-  const values: Record<string, number> = {};
-  for (const key of Object.keys(parameters)) {
-    const p = parameters[key];
-    if (p !== undefined) values[key] = p.value;
-  }
-  const payload = canonicalJson({ modelVersion, values });
-  return `${hex8(fnv1a32(payload, 0x811c9dc5))}${hex8(fnv1a32(payload, 0x01000193))}`;
-}
-
-/* ------------------------------------------------------------------------ */
 /* Validation                                                                */
 /* ------------------------------------------------------------------------ */
 
-function fail(message: string): never {
-  throw new Error(`Invalid risk config: ${message}`);
-}
-
-function readParameter(name: string, raw: unknown): RiskParameter {
-  if (raw === null || typeof raw !== "object") {
-    fail(`parameter "${name}" must be an object`);
-  }
-  const r = raw as Record<string, unknown>;
-
-  if (typeof r["value"] !== "number" || !Number.isFinite(r["value"])) {
-    fail(`parameter "${name}" needs a finite numeric "value"`);
-  }
-  if (typeof r["unit"] !== "string") fail(`parameter "${name}" needs a "unit"`);
-  if (typeof r["rationale"] !== "string") {
-    fail(`parameter "${name}" needs a "rationale"`);
-  }
-  if (typeof r["min"] !== "number" || typeof r["max"] !== "number") {
-    fail(`parameter "${name}" needs numeric "min" and "max"`);
-  }
-  if (typeof r["editable"] !== "boolean") {
-    fail(`parameter "${name}" needs a boolean "editable"`);
-  }
-  const source = r["sourceStatus"];
-  if (!SOURCE_STATUSES.includes(source as SourceStatus)) {
-    fail(`parameter "${name}" has an unknown sourceStatus "${String(source)}"`);
-  }
-  const review = r["clinicalReviewStatus"];
-  if (!REVIEW_STATUSES.includes(review as ClinicalReviewStatus)) {
-    fail(
-      `parameter "${name}" has an unknown clinicalReviewStatus "${String(review)}"`,
-    );
-  }
-  const value = r["value"] as number;
-  const min = r["min"] as number;
-  const max = r["max"] as number;
-  if (value < min || value > max) {
-    fail(`parameter "${name}" value ${value} is outside [${min}, ${max}]`);
-  }
-
-  return {
-    name,
-    value,
-    unit: r["unit"] as string,
-    sourceStatus: source as SourceStatus,
-    clinicalReviewStatus: review as ClinicalReviewStatus,
-    rationale: r["rationale"] as string,
-    min,
-    max,
-    editable: r["editable"] as boolean,
-  };
-}
-
 /**
  * Parse and validate a raw config object (e.g. `config/risk-default.json`).
- * Rejects unknown or missing parameter names so a typo can never silently fall
- * back to a hidden default.
+ *
+ * Delegates to the shared parameter loader in `lib/params/`, so the citation
+ * rule, the bounds check and the no-shadowing rule are defined once for every
+ * model config rather than restated per module.
+ *
+ * `shared` supplies parameters owned by `config/shared-default.json` — physical
+ * quantities used by more than one model. A name present in both the shared and
+ * the local config is rejected.
  */
-export function loadRiskConfig(raw: unknown): RiskConfig {
-  if (raw === null || typeof raw !== "object") fail("root must be an object");
-  const r = raw as Record<string, unknown>;
-
-  const modelVersion = r["modelVersion"];
-  if (typeof modelVersion !== "string" || modelVersion.trim() === "") {
-    fail(`"modelVersion" must be a non-empty string`);
-  }
-
-  const rawParams = r["parameters"];
-  if (rawParams === null || typeof rawParams !== "object") {
-    fail(`"parameters" must be an object`);
-  }
-  const paramsRecord = rawParams as Record<string, unknown>;
-
-  const known = new Set<string>(PARAM_NAMES);
-  for (const key of Object.keys(paramsRecord)) {
-    if (!known.has(key)) fail(`unknown parameter "${key}"`);
-  }
-
-  const parameters = {} as Record<ParamName, RiskParameter>;
-  for (const name of PARAM_NAMES) {
-    const entry = paramsRecord[name];
-    if (entry === undefined) fail(`missing parameter "${name}"`);
-    parameters[name] = readParameter(name, entry);
-  }
-
-  return {
-    modelVersion,
-    configHash: computeConfigHash(modelVersion, parameters),
-    parameters,
-  };
+export function loadRiskConfig(
+  raw: unknown,
+  shared?: Record<string, RiskParameter>,
+): RiskConfig {
+  return loadNamedParameters("risk config", raw, PARAM_NAMES, shared);
 }
 
 /** Every parameter, in declaration order — for the model assumptions panel. */
