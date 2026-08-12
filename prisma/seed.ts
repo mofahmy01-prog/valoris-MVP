@@ -10,6 +10,8 @@
 
 import { PrismaClient } from "@prisma/client";
 
+import { applyDatabaseGuards, DATABASE_GUARDS } from "../lib/db/guards";
+
 const prisma = new PrismaClient();
 
 const ORGANISATION_NAME = "Valoris Demonstration Fire Service (fictional)";
@@ -110,6 +112,31 @@ const PROFILES: SeedProfile[] = [
 ];
 
 async function main(): Promise<void> {
+  // Guards first. `npm run seed` runs immediately after `npx prisma migrate dev`
+  // in the documented startup, so the append-only guarantees are restored on
+  // every startup rather than depending on anyone remembering a separate step.
+  const guards = await applyDatabaseGuards(prisma);
+  if (guards.missingBefore.length > 0) {
+    console.log("!".repeat(78));
+    console.log(
+      `GUARD INTEGRITY FAILURE: ${guards.missingBefore.length} database guard(s) were missing and have been restored:`,
+    );
+    for (const name of guards.missingBefore) console.log(`  - ${name}`);
+    console.log(
+      "Cause is almost always a Prisma migration rebuilding a table and dropping its triggers.",
+    );
+    console.log("See docs/KNOWN_LIMITATIONS.md item 22.");
+    console.log("!".repeat(78));
+  }
+  if (!guards.enforcing) {
+    throw new Error(
+      `Database guards are not enforcing: ${guards.enforcementDetail}. Refusing to seed.`,
+    );
+  }
+  console.log(
+    `Database guards: ${DATABASE_GUARDS.length} installed and enforcing (${guards.enforcementDetail}).`,
+  );
+
   const existing = await prisma.organisation.findFirst({
     where: { name: ORGANISATION_NAME },
   });

@@ -72,12 +72,20 @@ npm install
 ```
 
 ```bash
-npx prisma migrate dev
+npm run migrate
 ```
 
 ```bash
 npm run seed
 ```
+
+> **Use `npm run migrate`, not `npx prisma migrate dev` directly.** Prisma adds a
+> column to a SQLite table by rebuilding it, which drops that table's triggers —
+> including the append-only guards on `Observation` and `AuditEvent`. `npm run
+> migrate` re-applies and proves them afterwards. `npm run seed` also restores
+> them, so the documented startup below is self-healing either way, and
+> `npm run verify:m2` fails loudly if any guard is absent.
+> See [docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) item 22.
 
 ```bash
 npm run dev
@@ -106,6 +114,30 @@ GET    /api/health
 The reason requirement on reject and override is enforced three times: by Zod on
 the request body, by an assertion in the shared action handler, and by a SQLite
 trigger on insert. A UI bug, a direct API call and a direct Prisma call all fail.
+
+## Data provenance — Tier A / B / C
+
+Every observation records where each part of it came from, per domain, and the
+tiers are never collapsed into one:
+
+| Tier | Meaning | In use today |
+|---|---|---|
+| **A** | Real measured environmental data (NIFC, Open-Meteo, PurpleAir, FIRMS) | Only when an operator supplies a real perimeter GeoJSON |
+| **B** | Real wearable data from **non-firefighter** subjects (WESAD, PAMAP2) | **Not in use.** No noise model has been built, so nothing claims it |
+| **C** | Synthetic, model-driven output | Everything else: environment, crew positions, vitals, physiology |
+
+`GET /api/incidents/[id]/snapshot` returns the data provenance strip:
+
+```
+Environment      SIMULATED   C · SIMULATED   valoris_simulated_atmosphere
+Fire front       SIMULATED   C · SIMULATED   valoris_geometric_spread_placeholder
+Crew positions   SIMULATED   C · SIMULATED   valoris_simulated_deployment_position
+Crew vitals      SIMULATED   C · SIMULATED   valoris_simulated_wearable
+Physiology       SIMULATED   C · SIMULATED   valoris_physiology_models
+```
+
+A Tier C record marked `isSimulated: false` — synthetic data presented as real —
+throws at construction. So does a Tier A record marked simulated.
 
 ## Verify it yourself
 

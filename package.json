@@ -17,7 +17,8 @@
     "verify:m2": "tsx scripts/verify-m2.ts",
     "sweep": "tsx scripts/severity-sweep.ts",
     "db:guards": "tsx scripts/apply-db-guards.ts",
-    "verify:m3b": "tsx scripts/verify-m3b.ts"
+    "verify:m3b": "tsx scripts/verify-m3b.ts",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

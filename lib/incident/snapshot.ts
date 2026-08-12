@@ -15,6 +15,15 @@ import { assessRisk } from "@/lib/risk/engine";
 import type { RiskAssessment } from "@/lib/risk/types";
 
 import {
+  PROVENANCE,
+  provenanceStrip,
+  tierSummary,
+  TIER_DISCLOSURE,
+  type ObservationProvenance,
+  type ProvenanceStripLine,
+} from "@/lib/provenance";
+
+import {
   toEnvironment,
   toHealthProfile,
   toPosition,
@@ -87,6 +96,19 @@ export type IncidentSnapshot = {
   };
   fireFront: (FireFront & { unavailableReason?: string }) | { unavailableReason: string; providerKey: string; providerLabel: string };
   firefighters: FirefighterSnapshot[];
+  /**
+   * The data provenance strip the Data Addendum requires on the commander
+   * dashboard. Structured, so the UI cannot paraphrase it into something softer
+   * than the truth.
+   */
+  provenance: {
+    dataTierSummary: string;
+    strip: ProvenanceStripLine[];
+    domains: ObservationProvenance;
+    disclosures: string[];
+    tierBInUse: boolean;
+    note: string;
+  };
   generatedAtUtc: string;
 };
 
@@ -194,6 +216,45 @@ export async function buildIncidentSnapshot(
 
   const fireFront = await resolveFireFront(incident, nowMs);
 
+  // Provenance for the strip. Read from the most recent observation where one
+  // exists, so the strip reflects what was actually recorded rather than what
+  // this code assumes; otherwise fall back to the declared defaults.
+  const latestWithProvenance = await prisma.observation.findFirst({
+    where: { incidentId },
+    orderBy: { recordedAtUtc: "desc" },
+    select: { provenanceJson: true },
+  });
+
+  let domains: ObservationProvenance = {
+    environment: PROVENANCE.simulatedEnvironment,
+    vitals: PROVENANCE.simulatedVitals,
+    position: PROVENANCE.simulatedPosition,
+    derivedPhysiology: PROVENANCE.derivedPhysiology,
+    fireFront:
+      "isFireBehaviourPrediction" in fireFront && fireFront.isFireBehaviourPrediction
+        ? PROVENANCE.observedPerimeter
+        : "perimeter" in fireFront
+          ? PROVENANCE.geometricFireFront
+          : PROVENANCE.unavailableFireFront,
+  };
+  if (
+    latestWithProvenance !== null &&
+    latestWithProvenance.provenanceJson !== "{}"
+  ) {
+    try {
+      domains = JSON.parse(
+        latestWithProvenance.provenanceJson,
+      ) as ObservationProvenance;
+    } catch {
+      // Keep the defaults rather than reporting a provenance we cannot parse.
+    }
+  }
+
+  const strip = provenanceStrip(domains);
+  const tierBInUse = strip.some(
+    (line) => line.tier === "B_REAL_WEARABLE_NON_FIREFIGHTER",
+  );
+
   return {
     incident: {
       id: incident.id,
@@ -210,6 +271,16 @@ export async function buildIncidentSnapshot(
     },
     fireFront,
     firefighters,
+    provenance: {
+      dataTierSummary: tierSummary(domains),
+      strip,
+      domains,
+      disclosures: [...new Set(strip.map((line) => TIER_DISCLOSURE[line.tier]))],
+      tierBInUse,
+      note: tierBInUse
+        ? "Tier B signal characteristics are in use. They come from non-firefighter human subjects and do not validate firefighter thresholds."
+        : "No Tier B data is in use: no signal-noise model has been built, so nothing here claims real wearable texture.",
+    },
     generatedAtUtc: new Date(nowMs).toISOString(),
   };
 }

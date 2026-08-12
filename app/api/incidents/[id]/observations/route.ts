@@ -32,6 +32,13 @@ import {
   type PhysiologyCarryOver,
 } from "@/lib/incident/physiology-pipeline";
 import { resolveFireFront } from "@/lib/incident/snapshot";
+import {
+  assertObservationProvenanceCoherent,
+  isFullySimulated,
+  PROVENANCE,
+  tierSummary,
+  type ObservationProvenance,
+} from "@/lib/provenance";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +92,35 @@ export async function POST(
   const nowMs = Date.now();
   const front = await resolveFireFront(incident, nowMs);
   const havePerimeter = "perimeter" in front && front.perimeter.length >= 3;
+
+  /* --- Provenance ------------------------------------------------------- */
+  // The fire front is the one domain that can be Tier A: a real observed
+  // perimeter from an operator-supplied NIFC export. Everything else in this
+  // build is Tier C. Nothing claims Tier B, because no noise model exists.
+  const fireFrontProvenance = !havePerimeter
+    ? PROVENANCE.unavailableFireFront
+    : "isFireBehaviourPrediction" in front && front.isFireBehaviourPrediction
+      ? {
+          ...PROVENANCE.observedPerimeter,
+          source: `${PROVENANCE.observedPerimeter.source} (${front.providerKey})`,
+          retrievedAt: new Date(front.validAtMs).toISOString(),
+          modelRef: front.provenance,
+        }
+      : {
+          ...PROVENANCE.geometricFireFront,
+          modelRef: "provenance" in front ? front.provenance : undefined,
+        };
+
+  const observationProvenance: ObservationProvenance = {
+    environment: PROVENANCE.simulatedEnvironment,
+    vitals: PROVENANCE.simulatedVitals,
+    position: PROVENANCE.simulatedPosition,
+    derivedPhysiology: PROVENANCE.derivedPhysiology,
+    fireFront: fireFrontProvenance,
+  };
+  assertObservationProvenanceCoherent(observationProvenance, "observation");
+  const provenanceSummary = tierSummary(observationProvenance);
+  const fullySimulated = isFullySimulated(observationProvenance);
 
   const results: Array<{
     callsign: string;
@@ -304,6 +340,15 @@ export async function POST(
 
         fireProviderKey: incident.fireProviderKey,
         fireFrontConfidence,
+
+        dataTierSummary: provenanceSummary,
+        environmentDataTier: observationProvenance.environment.dataTier,
+        vitalsDataTier: observationProvenance.vitals.dataTier,
+        positionDataTier: observationProvenance.position.dataTier,
+        physiologyDataTier: observationProvenance.derivedPhysiology.dataTier,
+        fireFrontDataTier: observationProvenance.fireFront.dataTier,
+        provenanceJson: JSON.stringify(observationProvenance),
+        isFullySimulated: fullySimulated,
       },
     });
 
@@ -464,6 +509,11 @@ export async function POST(
   return ok(
     {
       ingested: results.length,
+      provenance: {
+        dataTierSummary: provenanceSummary,
+        isFullySimulated: fullySimulated,
+        domains: observationProvenance,
+      },
       fireFront: havePerimeter
         ? {
             providerKey: "providerKey" in front ? front.providerKey : null,
@@ -506,11 +556,23 @@ export async function GET(
   return ok({
     appendOnly: true,
     count: observations.length,
+    provenanceNote:
+      "Every observation carries its data tiers per domain. Tier letters are never collapsed into one for a row that mixes them.",
     observations: observations.map((o) => ({
       id: o.id,
       callsign: o.deployment.firefighter.callsign,
       recordedAtUtc: o.recordedAtUtc.toISOString(),
       source: o.source,
+      dataTierSummary: o.dataTierSummary,
+      dataTiers: {
+        environment: o.environmentDataTier,
+        vitals: o.vitalsDataTier,
+        position: o.positionDataTier,
+        derivedPhysiology: o.physiologyDataTier,
+        fireFront: o.fireFrontDataTier,
+      },
+      isFullySimulated: o.isFullySimulated,
+      provenance: JSON.parse(o.provenanceJson) as unknown,
       hrBpm: o.hrBpm,
       spo2Pct: o.spo2Pct,
       coreTempC: o.coreTempC,

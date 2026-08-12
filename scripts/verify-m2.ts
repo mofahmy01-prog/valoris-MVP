@@ -60,6 +60,48 @@ async function main(): Promise<void> {
   rule();
 
   /* ---------------------------------------------------------------------- */
+  // Guard integrity comes FIRST and is read-only. If a migration has dropped a
+  // trigger, that must be the loudest thing in the output — not a line buried
+  // two hundred lines down. This check never repairs; `npm run seed` and
+  // `npm run migrate` do that. Detection and repair are kept separate so the
+  // report always states what was actually true when it ran.
+  console.log("\n0. DATABASE GUARD INTEGRITY (read-only)");
+  {
+    const { PrismaClient } = await import("@prisma/client");
+    const { verifyDatabaseGuards, DATABASE_GUARDS } = await import(
+      "../lib/db/guards"
+    );
+    const guardPrisma = new PrismaClient();
+    try {
+      const result = await verifyDatabaseGuards(guardPrisma);
+      console.log(`  installed: ${result.installed.join(", ") || "(none)"}`);
+      if (!result.ok) {
+        console.log("");
+        console.log("!".repeat(78));
+        console.log(
+          `  GUARD INTEGRITY FAILURE — ${result.missing.length} of ${DATABASE_GUARDS.length} guard(s) ABSENT:`,
+        );
+        for (const name of result.missing) console.log(`    - ${name}`);
+        console.log(
+          "  The append-only guarantee is NOT enforced. Run `npm run migrate` or `npm run seed`.",
+        );
+        console.log("  See docs/KNOWN_LIMITATIONS.md item 22.");
+        console.log("!".repeat(78));
+        console.log("");
+      }
+      for (const guard of DATABASE_GUARDS) {
+        check(
+          `guard ${guard.name} present`,
+          result.installed.includes(guard.name),
+          guard.purpose,
+        );
+      }
+    } finally {
+      await guardPrisma.$disconnect();
+    }
+  }
+
+  /* ---------------------------------------------------------------------- */
   console.log("\n1. GET /api/health");
   const health = await req("GET", "/api/health");
   console.log(JSON.stringify(health.json, null, 2));

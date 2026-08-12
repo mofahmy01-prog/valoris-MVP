@@ -207,6 +207,21 @@ model Observation {
   physiologyModelVersion       String?
   physiologyConfigHash         String?
 
+  // --- Data provenance (Tier A / B / C) -----------------------------------
+  // Recorded per domain, never collapsed to one tier for the row: an
+  // observation mixing a real perimeter with synthetic physiology is both, and
+  // blurring that is exactly what the Data Addendum forbids.
+  // `dataTierSummary` lists every tier present, e.g. "A+C".
+  dataTierSummary          String  @default("C")
+  environmentDataTier      String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  vitalsDataTier           String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  positionDataTier         String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  physiologyDataTier       String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  fireFrontDataTier        String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  /// Full per-domain Provenance records, as specified in the Data Addendum.
+  provenanceJson           String  @default("{}")
+  isFullySimulated         Boolean @default(true)
+
   // Provenance of the fire front this observation's distance was measured
   // against, so a stored distance can always be traced to its source.
   fireProviderKey       String?

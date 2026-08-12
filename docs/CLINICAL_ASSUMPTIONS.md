@@ -214,6 +214,61 @@ multiplicatively with environmental and proximity severity; and if so, whether
 the interaction should be bounded, since an unbounded product would let profile
 alone drive a `CRITICAL` band in severe conditions.
 
+### 15. Two different core temperature limits, neither labelled
+
+**Status: `illustrative` / `unreviewed`. Commander-confusion risk, raised by
+engineering.**
+
+There are currently **two** personalised core temperature limits in the system,
+for two different purposes, and nothing on screen distinguishes them:
+
+| Parameter | Config | Default | Purpose | Personalisation |
+|---|---|---|---|---|
+| `phs_core_temp_limit_c` | physiology | 38.0 °C | Exposure-duration ceiling — computes allowable minutes | `heat_tolerance_core_limit_shift_c` = 0.3 °C |
+| `override_core_temp_critical_c` | risk | 39.5 °C | Mayday-level hard override — fires `CRITICAL` | `heat_tolerance_core_temp_shift_c` = 0.5 °C |
+
+For BRAVO-2 (low heat tolerance) that produces a displayed "core temperature
+limit" of **37.7 °C** from the physiology model, while the `CRITICAL` override
+fires at **39.0 °C**. A commander reading 38.4 °C against a stated limit of
+37.7 °C would reasonably expect an alert, and would not get one for another
+0.6 °C.
+
+Observed live in `npm run verify:m3b`.
+
+**Question for review:** are two limits correct in principle — a "you should
+rotate soon" ceiling and a "this is an emergency" threshold — and if so, what
+should each be called on a commander's screen? If only one is defensible, which?
+Engineering will not pick either the values or the labels.
+
+**Needs review:** whether both limits should exist; what each is named in the UI;
+and whether the two personalisation shift parameters (0.3 °C and 0.5 °C) should
+be the same number.
+
+### 16. Modelled core temperature rise rate
+
+**Status: `illustrative` / `unreviewed`.**
+
+Observed in `npm run verify:m3b`: heart rate 148 bpm, ambient 42 °C, 55%
+humidity, in PPE, on air. Six ticks five minutes apart:
+
+| Callsign | t1 | t2 | t3 | t4 | t5 | t6 |
+|---|---|---|---|---|---|---|
+| ALPHA-1 (28, high heat tolerance) | 37.00 | 37.49 | 37.98 | 38.47 | 38.96 | 39.45 |
+| BRAVO-2 (52, low heat tolerance) | 37.00 | 37.58 | 38.16 | 38.74 | 39.32 | 39.90 |
+
+Roughly **0.5 °C per five minutes**, reaching 39.9 °C in thirty minutes. Heat
+storage reaches 402 W/m² because the required sweat rate exceeds what can be
+produced, so evaporative cooling saturates and the surplus goes into the body.
+
+Directionally this is what an encapsulated firefighter working hard in extreme
+heat does. The *rate* rests on two invented numbers:
+`evaporative_resistance_m2kpa_w_ppe` (0.06 m²kPa/W) and the sweat-rate ceiling.
+
+**Needs review:** whether ~0.1 °C/min is plausible under these conditions, and
+what the defensible range is. Any time-to-danger figure shown to a commander is
+a direct function of this rate, so it must be reviewed before Milestone 5
+surfaces one.
+
 ## Sign-off checklist
 
 No item below may be ticked by an engineer.
@@ -234,6 +289,8 @@ No item below may be ticked by an engineer.
 | 12 | SpO2 override confirmation and fail-safe default | | | |
 | 13 | Projected values for dropped sensors, and whether they may fire an override | | | |
 | 14 | Additive vs. multiplicative profile personalisation (near-constant 8.8–11.1 point offset) | | | |
+| 15 | Two unlabelled core temperature limits (38.0 °C duration ceiling vs 39.5 °C override) | | | |
+| 16 | Modelled core temperature rise rate (~0.5 °C per five minutes in extreme conditions) | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and
