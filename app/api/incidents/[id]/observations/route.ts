@@ -160,6 +160,23 @@ export async function POST(
         timeOnTaskMin: input.position.timeOnTaskMin,
         manualMaydayActive: input.position.manualMaydayActive,
 
+        positionFixUpdatedAtUtc: input.position.fixUpdatedAtUtc ?? recordedAt,
+        escapeRouteUpdatedAtUtc: input.position.escapeRouteUpdatedAtUtc ?? recordedAt,
+        distanceToFireFrontUpdatedAtUtc:
+          distanceToFireFrontM === null
+            ? null
+            : (input.position.distanceToFireFrontUpdatedAtUtc ?? recordedAt),
+        distanceToSafeZoneUpdatedAtUtc:
+          input.position.distanceToSafeZoneM === null ||
+          input.position.distanceToSafeZoneM === undefined
+            ? null
+            : (input.position.distanceToSafeZoneUpdatedAtUtc ?? recordedAt),
+        scbaPressureUpdatedAtUtc:
+          input.position.scbaPressurePct === null ||
+          input.position.scbaPressurePct === undefined
+            ? null
+            : (input.position.scbaPressureUpdatedAtUtc ?? recordedAt),
+
         fireProviderKey: incident.fireProviderKey,
         fireFrontConfidence,
       },

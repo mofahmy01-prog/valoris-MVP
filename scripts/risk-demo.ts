@@ -144,6 +144,13 @@ const IDENTICAL_POSITION: Position = {
   scbaPressurePct: 52,
   scbaOnAir: true,
   timeOnTaskMin: 28,
+  lastUpdatedMs: {
+    positionFix: NOW_MS - 4_000,
+    distanceToFireFrontM: NOW_MS - 4_000,
+    distanceToSafeZoneM: NOW_MS - 4_000,
+    escapeRouteStatus: NOW_MS - 4_000,
+    scbaPressurePct: NOW_MS - 4_000,
+  },
 };
 
 function line(char = "-"): string {

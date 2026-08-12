@@ -106,6 +106,29 @@ const ENV_CHANNELS = [
   "windDirDeg",
 ] as const;
 
+/**
+ * Position and equipment channels. `positionFix` covers lat/lng, and
+ * `escapeRouteStatus` is an assessment rather than a reading, but both go stale
+ * exactly like a sensor value and both must be aged.
+ */
+const POSITION_CHANNELS = [
+  "positionFix",
+  "distanceToFireFrontM",
+  "distanceToSafeZoneM",
+  "escapeRouteStatus",
+  "scbaPressurePct",
+] as const;
+
+/**
+ * Channels derived from the position fix. If the fix itself can no longer be
+ * trusted, neither can a distance measured from it, however recently that
+ * distance was computed.
+ */
+const FIX_DERIVED_CHANNELS: readonly string[] = [
+  "distanceToFireFrontM",
+  "distanceToSafeZoneM",
+];
+
 /** Absence of any of these forces the band to UNKNOWN and confidence to low. */
 const CRITICAL_CHANNELS: readonly string[] = ["hrBpm", "spo2Pct", "coreTempC"];
 
@@ -121,6 +144,7 @@ type Freshness = {
 function assessFreshness(
   vitals: Vitals,
   env: Environment,
+  pos: Position,
   config: RiskConfig,
   nowMs: number,
 ): Freshness {
@@ -128,45 +152,67 @@ function assessFreshness(
   const missingAfterSec = param(config, "missing_after_sec");
 
   const state: Record<string, ChannelState> = {};
-  const stale: string[] = [];
-  const missing: string[] = [];
   let oldestAgeSec = 0;
 
   const inspect = (
     key: string,
-    value: number | null,
-    lastUpdatedMs: Record<string, number>,
+    hasValue: boolean,
+    lastUpdatedMs: Record<string, number> | undefined,
   ): void => {
-    const ts = lastUpdatedMs[key];
+    const ts = lastUpdatedMs?.[key];
     if (typeof ts === "number" && Number.isFinite(ts)) {
       const ageSec = Math.max(0, (nowMs - ts) / 1000);
       if (ageSec > oldestAgeSec) oldestAgeSec = ageSec;
     }
 
-    if (value === null || !Number.isFinite(value)) {
+    if (!hasValue) {
       state[key] = "missing";
-      missing.push(key);
       return;
     }
     if (typeof ts !== "number" || !Number.isFinite(ts)) {
+      // A value with no reported age cannot be aged, so it cannot be trusted.
       state[key] = "missing";
-      missing.push(key);
       return;
     }
     const ageSec = Math.max(0, (nowMs - ts) / 1000);
-    if (ageSec > missingAfterSec) {
-      state[key] = "missing";
-      missing.push(key);
-    } else if (ageSec > staleAfterSec) {
-      state[key] = "stale";
-      stale.push(key);
-    } else {
-      state[key] = "ok";
-    }
+    state[key] =
+      ageSec > missingAfterSec ? "missing" : ageSec > staleAfterSec ? "stale" : "ok";
   };
 
-  for (const key of VITAL_CHANNELS) inspect(key, vitals[key], vitals.lastUpdatedMs);
-  for (const key of ENV_CHANNELS) inspect(key, env[key], env.lastUpdatedMs);
+  const present = (value: number | null): boolean =>
+    value !== null && Number.isFinite(value);
+
+  for (const key of VITAL_CHANNELS) {
+    inspect(key, present(vitals[key]), vitals.lastUpdatedMs);
+  }
+  for (const key of ENV_CHANNELS) {
+    inspect(key, present(env[key]), env.lastUpdatedMs);
+  }
+
+  // lat/lng and escapeRouteStatus are never null in the type, so their presence
+  // is given; only their age decides the state.
+  inspect("positionFix", Number.isFinite(pos.lat) && Number.isFinite(pos.lng), pos.lastUpdatedMs);
+  inspect("distanceToFireFrontM", present(pos.distanceToFireFrontM), pos.lastUpdatedMs);
+  inspect("distanceToSafeZoneM", present(pos.distanceToSafeZoneM), pos.lastUpdatedMs);
+  inspect("escapeRouteStatus", true, pos.lastUpdatedMs);
+  inspect("scbaPressurePct", present(pos.scbaPressurePct), pos.lastUpdatedMs);
+
+  // A distance is only as trustworthy as the fix it was measured from.
+  if (state["positionFix"] === "missing") {
+    for (const key of FIX_DERIVED_CHANNELS) state[key] = "missing";
+  } else if (state["positionFix"] === "stale") {
+    for (const key of FIX_DERIVED_CHANNELS) {
+      if (state[key] === "ok") state[key] = "stale";
+    }
+  }
+
+  // Build the reported lists in declaration order so output is deterministic.
+  const stale: string[] = [];
+  const missing: string[] = [];
+  for (const key of [...VITAL_CHANNELS, ...ENV_CHANNELS, ...POSITION_CHANNELS]) {
+    if (state[key] === "stale") stale.push(key);
+    else if (state[key] === "missing") missing.push(key);
+  }
 
   return { state, stale, missing, oldestAgeSec };
 }
@@ -497,40 +543,60 @@ function environmental(
   return { value, drivers };
 }
 
-function proximity(pos: Position, config: RiskConfig): SubscoreResult {
+function proximity(
+  pos: Position,
+  freshness: Freshness,
+  config: RiskConfig,
+): SubscoreResult {
+  const fireDistanceM = usable(
+    "distanceToFireFrontM",
+    pos.distanceToFireFrontM,
+    freshness,
+  );
+  const scbaPct = usable("scbaPressurePct", pos.scbaPressurePct, freshness);
+  const routeKnown = freshness.state["escapeRouteStatus"] !== "missing";
+  const fixState = freshness.state["positionFix"];
+
   const fireScore =
-    pos.distanceToFireFrontM === null
+    fireDistanceM === null
       ? MAX_SUBSCORE
       : descendingRamp(
-          pos.distanceToFireFrontM,
+          fireDistanceM,
           param(config, "fire_front_high_distance_m"),
           param(config, "fire_front_low_distance_m"),
         );
   const fireLabel =
-    pos.distanceToFireFrontM === null
-      ? "Distance to fire front unavailable — scored as worst case"
-      : `Fire front ${fmt(pos.distanceToFireFrontM, 0)} m away`;
+    fireDistanceM === null
+      ? fixState === "missing"
+        ? "Position fix too old to trust — distance to fire front discarded, scored as worst case"
+        : "Distance to fire front unavailable — scored as worst case"
+      : `Fire front ${fmt(fireDistanceM, 0)} m away${fixState === "stale" ? " (from an ageing position fix)" : ""}`;
 
-  const routeScore =
-    pos.escapeRouteStatus === "blocked"
+  // A route does not clear itself, so a stale determination is still used; an
+  // absent one is scored at worst case rather than assumed clear.
+  const routeScore = !routeKnown
+    ? param(config, "escape_route_blocked_score")
+    : pos.escapeRouteStatus === "blocked"
       ? param(config, "escape_route_blocked_score")
       : pos.escapeRouteStatus === "degraded"
         ? param(config, "escape_route_degraded_score")
         : 0;
-  const routeLabel = `Escape route ${pos.escapeRouteStatus}`;
+  const routeLabel = routeKnown
+    ? `Escape route ${pos.escapeRouteStatus}${freshness.state["escapeRouteStatus"] === "stale" ? " (assessment ageing)" : ""}`
+    : "Escape route status unavailable — scored as worst case";
 
   const scbaScore =
-    pos.scbaPressurePct === null
+    scbaPct === null
       ? MAX_SUBSCORE
       : descendingRamp(
-          pos.scbaPressurePct,
+          scbaPct,
           param(config, "scba_pressure_high_score_pct"),
           param(config, "scba_pressure_low_score_pct"),
         );
   const scbaLabel =
-    pos.scbaPressurePct === null
-      ? "SCBA pressure unavailable — scored as worst case"
-      : `SCBA ${fmt(pos.scbaPressurePct, 0)}% remaining`;
+    scbaPct === null
+      ? "SCBA pressure unavailable or too old to trust — scored as worst case"
+      : `SCBA ${fmt(scbaPct, 0)}% remaining${freshness.state["scbaPressurePct"] === "stale" ? " (reading ageing)" : ""}`;
 
   const terms: Array<{ key: string; label: string; p: ParamName; value: number }> = [
     {
@@ -711,23 +777,33 @@ function hardOverrides(
     reasons.push("Fall detected");
   }
 
-  const scbaPct = pos.scbaPressurePct ?? 0;
+  // Unknown or unagable SCBA pressure is itself the dangerous condition: nobody
+  // knows how much air this person has left.
+  const usableScba = usable("scbaPressurePct", pos.scbaPressurePct, freshness);
+  const scbaPct = usableScba ?? 0;
   const scbaThreshold = param(config, "override_scba_pressure_pct");
   if (scbaPct <= scbaThreshold) {
     reasons.push(
-      pos.scbaPressurePct === null
-        ? `SCBA pressure unavailable — treated as at or below the ${fmt(scbaThreshold, 0)}% override threshold`
+      usableScba === null
+        ? `SCBA pressure unavailable or too old to trust — treated as at or below the ${fmt(scbaThreshold, 0)}% override threshold`
         : `SCBA pressure ${fmt(scbaPct, 0)}% at or below the ${fmt(scbaThreshold, 0)}% override threshold`,
     );
   }
 
+  // A blocked route is used even when the assessment is ageing — routes do not
+  // clear themselves. Absence of any assessment does not manufacture one.
   if (pos.escapeRouteStatus === "blocked") {
-    const distanceM = pos.distanceToFireFrontM ?? 0;
+    const usableDistance = usable(
+      "distanceToFireFrontM",
+      pos.distanceToFireFrontM,
+      freshness,
+    );
+    const distanceM = usableDistance ?? 0;
     const limitM = param(config, "override_escape_blocked_fire_distance_m");
     if (distanceM <= limitM) {
       reasons.push(
-        pos.distanceToFireFrontM === null
-          ? `Escape route blocked and distance to fire front unavailable — treated as inside the ${fmt(limitM, 0)} m override distance`
+        usableDistance === null
+          ? `Escape route blocked and distance to fire front unavailable or too old to trust — treated as inside the ${fmt(limitM, 0)} m override distance`
           : `Escape route blocked with fire front ${fmt(distanceM, 0)} m away, inside the ${fmt(limitM, 0)} m override distance`,
       );
     }
@@ -848,12 +924,12 @@ export function assessRisk(
   config: RiskConfig,
   nowMs: number,
 ): RiskAssessment {
-  const freshness = assessFreshness(vitals, env, config, nowMs);
+  const freshness = assessFreshness(vitals, env, pos, config, nowMs);
   const th = personalise(profile, config);
 
   const phys = physiological(profile, vitals, pos, freshness, th, config);
   const environment = environmental(env, pos, freshness, th, config);
-  const prox = proximity(pos, config);
+  const prox = proximity(pos, freshness, config);
   const prof = profileVulnerability(profile, config);
 
   const score = clamp(

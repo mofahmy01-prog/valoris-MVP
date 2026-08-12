@@ -87,6 +87,16 @@ function benignEnvironment(over: Partial<Environment> = {}): Environment {
   };
 }
 
+function freshPositionTimestamps(ageMs = 4_000): Record<string, number> {
+  return {
+    positionFix: NOW_MS - ageMs,
+    distanceToFireFrontM: NOW_MS - ageMs,
+    distanceToSafeZoneM: NOW_MS - ageMs,
+    escapeRouteStatus: NOW_MS - ageMs,
+    scbaPressurePct: NOW_MS - ageMs,
+  };
+}
+
 function benignPosition(over: Partial<Position> = {}): Position {
   return {
     lat: 37.35,
@@ -97,6 +107,7 @@ function benignPosition(over: Partial<Position> = {}): Position {
     scbaPressurePct: 88,
     scbaOnAir: true,
     timeOnTaskMin: 6,
+    lastUpdatedMs: freshPositionTimestamps(),
     ...over,
   };
 }
@@ -190,6 +201,13 @@ const arbPosition: fc.Arbitrary<Position> = fc.record({
   scbaOnAir: fc.boolean(),
   timeOnTaskMin: fc.double({ min: 0, max: 240, noNaN: true }),
   manualMaydayActive: fc.boolean(),
+  lastUpdatedMs: arbTimestamps([
+    "positionFix",
+    "distanceToFireFrontM",
+    "distanceToSafeZoneM",
+    "escapeRouteStatus",
+    "scbaPressurePct",
+  ]),
 });
 
 const arbScenario = fc.tuple(arbProfile, arbVitals, arbEnvironment, arbPosition);
@@ -315,7 +333,9 @@ function withInputRemoved(
     delete lastUpdatedMs[key];
     return [vitals, { ...env, [key]: null, lastUpdatedMs }, pos];
   }
-  return [vitals, env, { ...pos, [key]: null }];
+  const lastUpdatedMs = { ...(pos.lastUpdatedMs ?? {}) };
+  delete lastUpdatedMs[key];
+  return [vitals, env, { ...pos, [key]: null, lastUpdatedMs }];
 }
 
 describe("assessRisk — removing an input is never rewarded", () => {
@@ -539,6 +559,219 @@ describe("assessRisk — missing data is never safe", () => {
     expect(r.hardOverride).toBe(true);
     expect(r.hardOverrideReasons).toContain("Fall detected");
     expect(r.dataQuality.confidence).toBe("low");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Position freshness                                                          */
+/* -------------------------------------------------------------------------- */
+
+describe("assessRisk — position and equipment freshness", () => {
+  it("treats a frozen SCBA feed as unusable rather than as a confident reading", () => {
+    const fresh = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(fresh.dataQuality.missingInputs).not.toContain("scbaPressurePct");
+    expect(fresh.hardOverride).toBe(false);
+
+    // Same plausible 88% reading, but last refreshed 5 minutes ago.
+    const frozen = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          scbaPressurePct: NOW_MS - 300_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(frozen.dataQuality.missingInputs).toContain("scbaPressurePct");
+    expect(frozen.score).toBeGreaterThan(fresh.score);
+    // Unknown remaining air is itself the dangerous condition.
+    expect(frozen.hardOverride).toBe(true);
+    expect(frozen.hardOverrideReasons.join(" ")).toContain("too old to trust");
+  });
+
+  it("marks a position channel stale between the two thresholds", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          scbaPressurePct: NOW_MS - 90_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.staleInputs).toContain("scbaPressurePct");
+    expect(r.dataQuality.missingInputs).not.toContain("scbaPressurePct");
+    expect(r.hardOverride).toBe(false);
+  });
+
+  it("discards distances measured from a position fix that is too old", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          positionFix: NOW_MS - 300_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.missingInputs).toContain("positionFix");
+    // The distances were fresh, but the fix they came from was not.
+    expect(r.dataQuality.missingInputs).toContain("distanceToFireFrontM");
+    expect(r.dataQuality.missingInputs).toContain("distanceToSafeZoneM");
+    expect(r.topDrivers.join(" ")).toContain("Position fix too old to trust");
+  });
+
+  it("downgrades fix-derived distances to stale when the fix is stale", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          positionFix: NOW_MS - 90_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.staleInputs).toContain("positionFix");
+    expect(r.dataQuality.staleInputs).toContain("distanceToFireFrontM");
+    expect(r.dataQuality.missingInputs).not.toContain("distanceToFireFrontM");
+  });
+
+  it("scores an unavailable escape route assessment at worst case", () => {
+    const withRoute = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    const withoutRoute = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          escapeRouteStatus: NOW_MS - 300_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(withoutRoute.dataQuality.missingInputs).toContain("escapeRouteStatus");
+    expect(withoutRoute.subscores.proximity).toBeGreaterThan(
+      withRoute.subscores.proximity,
+    );
+    // Absence must not manufacture a "blocked" determination.
+    expect(withoutRoute.hardOverride).toBe(false);
+  });
+
+  it("still honours a blocked route whose assessment has gone stale", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        escapeRouteStatus: "blocked",
+        distanceToFireFrontM: 80,
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          escapeRouteStatus: NOW_MS - 90_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.hardOverride).toBe(true);
+    expect(r.band).toBe("CRITICAL");
+  });
+
+  it("treats an entirely absent freshness map as unsafe, not as fresh", () => {
+    const noTimestamps: Position = {
+      lat: 37.35,
+      lng: -122.05,
+      distanceToFireFrontM: 900,
+      distanceToSafeZoneM: 150,
+      escapeRouteStatus: "clear",
+      scbaPressurePct: 88,
+      scbaOnAir: true,
+      timeOnTaskMin: 6,
+    };
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      noTimestamps,
+      CONFIG,
+      NOW_MS,
+    );
+    for (const channel of [
+      "positionFix",
+      "distanceToFireFrontM",
+      "distanceToSafeZoneM",
+      "escapeRouteStatus",
+      "scbaPressurePct",
+    ]) {
+      expect(r.dataQuality.missingInputs).toContain(channel);
+    }
+    expect(r.band).not.toBe("SAFE");
+    expect(r.dataQuality.confidence).not.toBe("high");
+  });
+
+  it("counts position channels toward the stale-input confidence rule", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: {
+          ...freshPositionTimestamps(),
+          scbaPressurePct: NOW_MS - 90_000,
+          distanceToSafeZoneM: NOW_MS - 90_000,
+        },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.staleInputs.length).toBeGreaterThanOrEqual(2);
+    expect(r.dataQuality.confidence).toBe("medium");
+  });
+
+  it("includes position ages in the oldest-reading figure", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition({
+        lastUpdatedMs: { ...freshPositionTimestamps(), positionFix: NOW_MS - 45_000 },
+      }),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.oldestReadingAgeSec).toBe(45);
   });
 });
 

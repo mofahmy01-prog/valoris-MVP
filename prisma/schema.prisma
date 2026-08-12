@@ -170,6 +170,14 @@ model Observation {
   timeOnTaskMin        Float
   manualMaydayActive   Boolean @default(false)
 
+  // Position and equipment channels go stale exactly like vitals. Without
+  // these, a frozen GPS or SCBA feed would contribute to a confident score.
+  positionFixUpdatedAtUtc          DateTime?
+  distanceToFireFrontUpdatedAtUtc  DateTime?
+  distanceToSafeZoneUpdatedAtUtc   DateTime?
+  escapeRouteUpdatedAtUtc          DateTime?
+  scbaPressureUpdatedAtUtc         DateTime?
+
   // Provenance of the fire front this observation's distance was measured
   // against, so a stored distance can always be traced to its source.
   fireProviderKey       String?

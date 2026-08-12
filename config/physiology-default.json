@@ -1,0 +1,612 @@
+{
+  "modelVersion": "valoris-physiology-0.1.0",
+  "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. Every value is illustrative and unreviewed. The heat strain model is a REDUCED implementation of the ISO 7933 heat-balance core, not a conformant ISO 7933 implementation, and must never be presented as one. No external body has reviewed or validated any of this.",
+  "parameters": {
+    "body_mass_kg_default": {
+      "value": 80,
+      "unit": "kg",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Population default used when a subject body mass is absent. Heat storage per kilogram is sensitive to this, so a wrong default biases core temperature estimates.",
+      "min": 40,
+      "max": 160,
+      "editable": true
+    },
+    "body_surface_area_m2_default": {
+      "value": 1.9,
+      "unit": "m2",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Population default DuBois surface area. Should be computed from height and mass once those are captured per firefighter.",
+      "min": 1.2,
+      "max": 2.6,
+      "editable": true
+    },
+    "specific_heat_body_wh_per_kg_c": {
+      "value": 0.965,
+      "unit": "Wh/(kg C)",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Specific heat of body tissue, used to convert stored heat into a temperature rise.",
+      "min": 0.8,
+      "max": 1.1,
+      "editable": true
+    },
+
+    "hr_max_age_constant_bpm": {
+      "value": 220,
+      "unit": "bpm",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Constant in the age-adjusted maximum heart rate estimate (constant minus age). A crude population formula with roughly plus or minus 10 to 12 bpm individual spread, not a measured maximum.",
+      "min": 190,
+      "max": 230,
+      "editable": true
+    },
+    "ppe_clo": {
+      "value": 1.8,
+      "unit": "clo",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Thermal insulation of structural firefighting PPE with SCBA.",
+      "min": 0.5,
+      "max": 3.5,
+      "editable": true
+    },
+    "ppe_reserve_penalty_frac_per_clo": {
+      "value": 0.06,
+      "unit": "fraction per clo",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of heart rate reserve lost per clo of encapsulating PPE, representing the cardiovascular cost of wearing it. Magnitude is invented.",
+      "min": 0,
+      "max": 0.3,
+      "editable": true
+    },
+    "heat_reserve_penalty_frac_per_c": {
+      "value": 0.008,
+      "unit": "fraction per C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Additional fraction of heart rate reserve lost per degree of ambient temperature above the reference, representing cardiovascular drift in heat.",
+      "min": 0,
+      "max": 0.05,
+      "editable": true
+    },
+    "heat_reserve_penalty_reference_c": {
+      "value": 30,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Ambient temperature above which the heat reserve penalty begins.",
+      "min": 15,
+      "max": 45,
+      "editable": true
+    },
+    "max_reserve_penalty_frac": {
+      "value": 0.35,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Cap on the combined PPE and heat reserve penalty, so the model cannot claim a firefighter has almost no usable reserve.",
+      "min": 0,
+      "max": 0.7,
+      "editable": true
+    },
+    "min_hr_reserve_bpm": {
+      "value": 20,
+      "unit": "bpm",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Floor on effective heart rate reserve, to keep the reserve fraction finite for subjects with a high resting rate.",
+      "min": 5,
+      "max": 60,
+      "editable": true
+    },
+
+    "metabolic_rate_rest_w_m2": {
+      "value": 58,
+      "unit": "W/m2",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Resting metabolic rate, one met. Lower bound of the inferred work rate.",
+      "min": 40,
+      "max": 80,
+      "editable": true
+    },
+    "metabolic_rate_max_w_m2": {
+      "value": 475,
+      "unit": "W/m2",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Metabolic rate at full heart rate reserve, corresponding to very heavy work. Valoris has no work-rate sensor, so metabolic rate is inferred from cardiac strain.",
+      "min": 200,
+      "max": 700,
+      "editable": true
+    },
+    "work_efficiency_fraction": {
+      "value": 0,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of metabolic rate converted to external mechanical work. Near zero for firefighting tasks, so essentially all metabolism becomes heat.",
+      "min": 0,
+      "max": 0.25,
+      "editable": true
+    },
+
+    "skin_temp_c": {
+      "value": 35.5,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Assumed mean skin temperature. ISO 7933 predicts this iteratively; holding it fixed is one of the main simplifications in this reduced model.",
+      "min": 32,
+      "max": 38,
+      "editable": true
+    },
+    "skin_vapour_pressure_kpa": {
+      "value": 5.62,
+      "unit": "kPa",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Saturated water vapour pressure at the assumed skin temperature.",
+      "min": 4,
+      "max": 7,
+      "editable": true
+    },
+    "convective_coeff_w_m2k": {
+      "value": 8.7,
+      "unit": "W/(m2 K)",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Convective heat transfer coefficient at the reference air velocity.",
+      "min": 2,
+      "max": 20,
+      "editable": true
+    },
+    "radiative_coeff_w_m2k": {
+      "value": 4.7,
+      "unit": "W/(m2 K)",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Linearised radiative heat transfer coefficient. A linearisation is poor next to a flame front, where radiant load dominates.",
+      "min": 2,
+      "max": 10,
+      "editable": true
+    },
+    "air_velocity_ms_default": {
+      "value": 0.3,
+      "unit": "m/s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Air velocity assumed when none is reported. Understating velocity understates both convective loss and evaporative capacity.",
+      "min": 0,
+      "max": 5,
+      "editable": true
+    },
+    "air_velocity_exponent": {
+      "value": 0.6,
+      "unit": "exponent",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Exponent scaling convective and evaporative transfer with air velocity.",
+      "min": 0.3,
+      "max": 1,
+      "editable": true
+    },
+    "clothing_insulation_clo_ppe": {
+      "value": 1.8,
+      "unit": "clo",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Thermal insulation used in the heat balance when PPE is worn.",
+      "min": 0.5,
+      "max": 3.5,
+      "editable": true
+    },
+    "clothing_insulation_clo_no_ppe": {
+      "value": 0.6,
+      "unit": "clo",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Thermal insulation used when PPE is not worn, for example during rehab.",
+      "min": 0.1,
+      "max": 2,
+      "editable": true
+    },
+    "evaporative_resistance_m2kpa_w_ppe": {
+      "value": 0.06,
+      "unit": "m2 kPa/W",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Evaporative resistance of structural PPE. High resistance is why sweating stops working in turnout gear, and it is the single most important number in this model.",
+      "min": 0.01,
+      "max": 0.2,
+      "editable": true
+    },
+    "evaporative_resistance_m2kpa_w_no_ppe": {
+      "value": 0.016,
+      "unit": "m2 kPa/W",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Evaporative resistance without PPE.",
+      "min": 0.005,
+      "max": 0.1,
+      "editable": true
+    },
+    "respiratory_evaporative_coeff": {
+      "value": 0.0173,
+      "unit": "coefficient",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Coefficient for respiratory evaporative heat loss as a function of metabolic rate and inspired vapour pressure.",
+      "min": 0.005,
+      "max": 0.05,
+      "editable": true
+    },
+    "respiratory_convective_coeff": {
+      "value": 0.0014,
+      "unit": "coefficient",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Coefficient for respiratory convective heat loss as a function of metabolic rate and inspired air temperature.",
+      "min": 0.0005,
+      "max": 0.005,
+      "editable": true
+    },
+    "max_sweat_rate_g_per_hour_unacclimatised": {
+      "value": 1000,
+      "unit": "g/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Maximum achievable sweat rate for an unacclimatised worker. Sweat demanded above this is simply not produced, so heat accumulates.",
+      "min": 300,
+      "max": 2500,
+      "editable": true
+    },
+    "max_sweat_rate_g_per_hour_acclimatised": {
+      "value": 1300,
+      "unit": "g/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Maximum achievable sweat rate for a heat-acclimatised worker.",
+      "min": 300,
+      "max": 3000,
+      "editable": true
+    },
+    "max_water_loss_g_unacclimatised": {
+      "value": 2000,
+      "unit": "g",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Cumulative water loss limit for an unacclimatised worker, one of the two limits that bound safe exposure duration.",
+      "min": 500,
+      "max": 5000,
+      "editable": true
+    },
+    "max_water_loss_g_acclimatised": {
+      "value": 2600,
+      "unit": "g",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Cumulative water loss limit for a heat-acclimatised worker.",
+      "min": 500,
+      "max": 6000,
+      "editable": true
+    },
+    "evaporative_efficiency_at_full_wettedness": {
+      "value": 0.5,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Efficiency of sweat evaporation once the skin is fully wetted; the remainder drips and cools nobody. Drives the gap between required and predicted sweat rate.",
+      "min": 0.2,
+      "max": 1,
+      "editable": true
+    },
+    "phs_core_temp_limit_c": {
+      "value": 38,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Core temperature ceiling used to compute allowable exposure duration, before personalisation for heat tolerance.",
+      "min": 37,
+      "max": 40,
+      "editable": true
+    },
+    "heat_tolerance_core_limit_shift_c": {
+      "value": 0.3,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "The allowable core temperature limit shifts down by this amount for low heat tolerance and up for high. Relaxing a limit upward is the most dangerous direction this model can move and needs physician sign-off.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "dlim_horizon_min": {
+      "value": 480,
+      "unit": "min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Horizon beyond which an allowable duration is reported as not reached rather than as a very large number.",
+      "min": 30,
+      "max": 1440,
+      "editable": true
+    },
+
+    "core_temp_baseline_c": {
+      "value": 37,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Assumed starting core temperature when no prior estimate exists.",
+      "min": 36,
+      "max": 37.8,
+      "editable": true
+    },
+    "core_temp_min_c": {
+      "value": 35,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower physiological bound the estimate is clamped to. The clamp is reported, so a clamped estimate is never mistaken for a measurement.",
+      "min": 33,
+      "max": 36.5,
+      "editable": true
+    },
+    "core_temp_max_c": {
+      "value": 42,
+      "unit": "C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper physiological bound the estimate is clamped to.",
+      "min": 40,
+      "max": 44,
+      "editable": true
+    },
+    "core_temp_weight_heat_storage": {
+      "value": 0.6,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of the heat-balance storage term in the core temperature estimate.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "core_temp_weight_cardiac": {
+      "value": 0.4,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of the heart-rate-driven term in the core temperature estimate.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "core_temp_cardiac_rise_c_per_hour_at_max_hrr": {
+      "value": 2.4,
+      "unit": "C/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Core temperature rise per hour attributable to cardiac strain at full heart rate reserve.",
+      "min": 0.5,
+      "max": 5,
+      "editable": true
+    },
+    "core_temp_cardiac_hrr_threshold_frac": {
+      "value": 0.35,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Heart rate reserve fraction below which cardiac strain contributes no net core temperature rise.",
+      "min": 0,
+      "max": 0.8,
+      "editable": true
+    },
+    "core_temp_recovery_c_per_hour": {
+      "value": 1.2,
+      "unit": "C/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Rate at which core temperature returns toward baseline when heat storage is negative and exertion is below the threshold.",
+      "min": 0.1,
+      "max": 4,
+      "editable": true
+    },
+
+    "fatigue_accum_pct_per_hour_at_max_hrr": {
+      "value": 55,
+      "unit": "%/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue index points accumulated per hour at full heart rate reserve, before fitness and heat multipliers.",
+      "min": 5,
+      "max": 150,
+      "editable": true
+    },
+    "fatigue_hrr_threshold_frac": {
+      "value": 0.3,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Heart rate reserve fraction below which work is treated as recoverable rather than fatiguing.",
+      "min": 0,
+      "max": 0.8,
+      "editable": true
+    },
+    "fatigue_heat_multiplier_at_core_limit": {
+      "value": 1.6,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Multiplier applied to fatigue accumulation when the estimated core temperature has reached its personalised limit.",
+      "min": 1,
+      "max": 3,
+      "editable": true
+    },
+    "fatigue_recovery_pct_per_hour": {
+      "value": 18,
+      "unit": "%/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue index points recovered per hour below the exertion threshold. Recovery is modelled as much slower than accumulation.",
+      "min": 1,
+      "max": 60,
+      "editable": true
+    },
+    "fatigue_prev_shift_pct_per_hour": {
+      "value": 1.5,
+      "unit": "%/h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue index points carried into this incident per hour of the previous shift. Recovery time since that shift is not modelled.",
+      "min": 0,
+      "max": 5,
+      "editable": true
+    },
+    "fatigue_fitness_multiplier_low": {
+      "value": 1.3,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue accumulation multiplier for low fitness.",
+      "min": 0.5,
+      "max": 2.5,
+      "editable": true
+    },
+    "fatigue_fitness_multiplier_moderate": {
+      "value": 1,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue accumulation multiplier for moderate fitness.",
+      "min": 0.5,
+      "max": 2.5,
+      "editable": true
+    },
+    "fatigue_fitness_multiplier_high": {
+      "value": 0.8,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fatigue accumulation multiplier for high fitness.",
+      "min": 0.3,
+      "max": 2,
+      "editable": true
+    },
+    "fatigue_min_pct": {
+      "value": 0,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower bound of the fatigue index.",
+      "min": 0,
+      "max": 20,
+      "editable": true
+    },
+    "fatigue_max_pct": {
+      "value": 100,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of the fatigue index.",
+      "min": 50,
+      "max": 100,
+      "editable": true
+    },
+
+    "cohb_baseline_pct": {
+      "value": 0.8,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Baseline carboxyhaemoglobin for a non-smoker. Smoking status is not captured, and a smoker starts substantially higher.",
+      "min": 0,
+      "max": 5,
+      "editable": true
+    },
+    "cohb_pct_per_ppm_hour_at_rest": {
+      "value": 0.05,
+      "unit": "% per ppm-hour",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Carboxyhaemoglobin gain per ppm-hour of inhaled CO at rest. A first-order stand-in for the Coburn-Forster-Kane equation, which this model does not implement.",
+      "min": 0.005,
+      "max": 0.3,
+      "editable": true
+    },
+    "cohb_ventilation_multiplier_max": {
+      "value": 4,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Multiplier on CO uptake at full heart rate reserve, representing raised minute ventilation during heavy work.",
+      "min": 1,
+      "max": 10,
+      "editable": true
+    },
+    "cohb_elimination_half_life_min": {
+      "value": 300,
+      "unit": "min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Carboxyhaemoglobin elimination half-life while breathing clean air. Shorter on supplemental oxygen, which is not modelled.",
+      "min": 30,
+      "max": 600,
+      "editable": true
+    },
+    "cohb_index_limit_pct": {
+      "value": 10,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Carboxyhaemoglobin level treated as index 1.0. Not a safe level; a reference point for scaling only.",
+      "min": 2,
+      "max": 30,
+      "editable": true
+    },
+    "cohb_max_pct": {
+      "value": 70,
+      "unit": "%",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound the carboxyhaemoglobin estimate is clamped to, so arithmetic stays in a physiological range.",
+      "min": 20,
+      "max": 90,
+      "editable": true
+    },
+    "pm25_dose_index_limit_ug_min_m3": {
+      "value": 30000,
+      "unit": "ug min/m3",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Cumulative inhaled PM2.5 dose treated as index 1.0, for example 250 ug/m3 for 120 minutes. No occupational dose limit for wildfire smoke is settled, which is exactly why this is illustrative.",
+      "min": 1000,
+      "max": 200000,
+      "editable": true
+    },
+    "scba_inhaled_fraction_on_air": {
+      "value": 0.05,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of ambient contaminant still inhaled while on air. Deliberately not zero: Valoris cannot verify mask seal, cylinder contents or compliance, so it never credits perfect protection.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "scba_inhaled_fraction_off_air": {
+      "value": 1,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of ambient contaminant inhaled when not on air.",
+      "min": 0.5,
+      "max": 1,
+      "editable": true
+    }
+  }
+}

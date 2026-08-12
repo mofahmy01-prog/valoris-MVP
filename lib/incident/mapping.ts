@@ -118,6 +118,34 @@ export function toEnvironment(row: Observation): Environment {
 }
 
 export function toPosition(row: Observation): Position {
+  // positionFix and escapeRouteStatus are never null, so their timestamps are
+  // recorded whenever present; the distances follow the nullable-value rule.
+  const lastUpdatedMs: Record<string, number> = {};
+  if (row.positionFixUpdatedAtUtc !== null) {
+    lastUpdatedMs["positionFix"] = row.positionFixUpdatedAtUtc.getTime();
+  }
+  if (row.escapeRouteUpdatedAtUtc !== null) {
+    lastUpdatedMs["escapeRouteStatus"] = row.escapeRouteUpdatedAtUtc.getTime();
+  }
+  putTimestamp(
+    lastUpdatedMs,
+    "distanceToFireFrontM",
+    row.distanceToFireFrontM,
+    row.distanceToFireFrontUpdatedAtUtc,
+  );
+  putTimestamp(
+    lastUpdatedMs,
+    "distanceToSafeZoneM",
+    row.distanceToSafeZoneM,
+    row.distanceToSafeZoneUpdatedAtUtc,
+  );
+  putTimestamp(
+    lastUpdatedMs,
+    "scbaPressurePct",
+    row.scbaPressurePct,
+    row.scbaPressureUpdatedAtUtc,
+  );
+
   return {
     lat: row.lat,
     lng: row.lng,
@@ -128,5 +156,6 @@ export function toPosition(row: Observation): Position {
     scbaOnAir: row.scbaOnAir,
     timeOnTaskMin: row.timeOnTaskMin,
     manualMaydayActive: row.manualMaydayActive,
+    lastUpdatedMs,
   };
 }

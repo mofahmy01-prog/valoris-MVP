@@ -104,6 +104,15 @@ export const observationSchema = z
         scbaOnAir: z.boolean().default(true),
         timeOnTaskMin: z.number().finite().min(0),
         manualMaydayActive: z.boolean().default(false),
+
+        // Per-channel freshness. Each defaults to the observation time when the
+        // caller omits it, matching how vitals and environment channels behave.
+        // A simulated sensor failure works by simply not advancing one of these.
+        fixUpdatedAtUtc: z.coerce.date().nullable().optional(),
+        distanceToFireFrontUpdatedAtUtc: z.coerce.date().nullable().optional(),
+        distanceToSafeZoneUpdatedAtUtc: z.coerce.date().nullable().optional(),
+        escapeRouteUpdatedAtUtc: z.coerce.date().nullable().optional(),
+        scbaPressureUpdatedAtUtc: z.coerce.date().nullable().optional(),
       })
       .strict(),
   })

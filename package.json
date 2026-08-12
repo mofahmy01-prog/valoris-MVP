@@ -14,7 +14,8 @@
     "seed": "tsx prisma/seed.ts",
     "risk:demo": "tsx scripts/risk-demo.ts",
     "verify:m1": "tsx scripts/verify-m1.ts",
-    "verify:m2": "tsx scripts/verify-m2.ts"
+    "verify:m2": "tsx scripts/verify-m2.ts",
+    "sweep": "tsx scripts/severity-sweep.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

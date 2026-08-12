@@ -75,6 +75,23 @@ export type Position = {
    * than in Vitals because it is an operational state, not a sensor reading.
    */
   manualMaydayActive?: boolean;
+
+  /**
+   * Freshness of each position/equipment channel, keyed by channel name:
+   * `positionFix`, `distanceToFireFrontM`, `distanceToSafeZoneM`,
+   * `escapeRouteStatus`, `scbaPressurePct`.
+   *
+   * Optional only so the originally specified `Position` shape still
+   * type-checks. **Omitting it is not a safe default.** An absent map means no
+   * channel's age can be established, so every position channel is treated as
+   * missing — which scores each at worst case and fires the SCBA override. That
+   * is deliberate: forgetting to report freshness must be loud, not silent.
+   *
+   * A frozen GPS or SCBA feed keeps reporting the same plausible number for as
+   * long as nobody checks its age. Tracking that age here is what stops a stale
+   * reading from contributing to a confident score.
+   */
+  lastUpdatedMs?: Record<string, number>;
 };
 
 export type DataQuality = {
