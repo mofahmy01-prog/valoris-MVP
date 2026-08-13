@@ -40,6 +40,7 @@ export function toHealthProfile(row: FirefighterProfile): HealthProfile {
     prevShiftHours: row.prevShiftHours,
     cumulativeCoExposureIndex: row.cumulativeCoExposureIndex,
     cumulativeHeatExposureIndex: row.cumulativeHeatExposureIndex,
+    glucoseMonitored: row.glucoseMonitored,
   };
 }
 

@@ -337,6 +337,86 @@
       "editable": true
     },
 
+    "phys_weight_glucose": {
+      "value": 0.25,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Weight of glucose within the physiological subscore, applied ONLY for a firefighter wearing a CGM. For everyone else the weight is zero and the remaining terms renormalise, so an unmonitored firefighter is not penalised for a channel they do not have.",
+      "min": 0,
+      "max": 1,
+      "editable": true
+    },
+    "glucose_stale_after_sec": {
+      "value": 420,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Glucose-specific staleness threshold. CGM reports roughly every five minutes, so the system-wide 60-second threshold would mark every normal reading stale. Mirrors glucose_stale_after_sec in config/risk-diabetes.json; review them together.",
+      "min": 120,
+      "max": 1800,
+      "editable": true
+    },
+    "glucose_missing_after_sec": {
+      "value": 900,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Glucose-specific missing threshold, roughly three missed CGM cadences.",
+      "min": 300,
+      "max": 3600,
+      "editable": true
+    },
+    "glucose_hypo_override_mmol_l": {
+      "value": 3.5,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lag-corrected glucose at or below which a hard override fires. Hypoglycaemia incapacitates quickly and must not be outvoted by a weighted average. INVENTED and unsourced — see docs/CLINICAL_ASSUMPTIONS.md item 29.",
+      "min": 2,
+      "max": 5,
+      "editable": true
+    },
+    "glucose_low_mmol_l": {
+      "value": 4,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lag-corrected glucose at or below which the low-glucose contribution reaches maximum.",
+      "min": 2,
+      "max": 6,
+      "editable": true
+    },
+    "glucose_ideal_low_mmol_l": {
+      "value": 6,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower edge of the range treated as unremarkable during exertion; at or above this, low glucose contributes nothing.",
+      "min": 4,
+      "max": 8,
+      "editable": true
+    },
+    "glucose_hyper_low_mmol_l": {
+      "value": 10,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lag-corrected glucose at or below which the high-glucose contribution is zero.",
+      "min": 6,
+      "max": 20,
+      "editable": true
+    },
+    "glucose_hyper_high_mmol_l": {
+      "value": 15,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lag-corrected glucose at or above which the high-glucose contribution reaches maximum. Sustained hyperglycaemia during exertion carries dehydration and ketoacidosis risk.",
+      "min": 10,
+      "max": 30,
+      "editable": true
+    },
     "env_weight_co": {
       "value": 0.4,
       "unit": "fraction",

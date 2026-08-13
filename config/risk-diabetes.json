@@ -1,0 +1,186 @@
+{
+  "modelVersion": "valoris-diabetes-0.1.0",
+  "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. Every value here is illustrative and unreviewed. The interstitial lag correction values in particular are invented: they are a plausible direction of adjustment, not a validated correction. Glucose is in mmol/L throughout — never mg/dL. See docs/CLINICAL_ASSUMPTIONS.md item 29.",
+  "parameters": {
+    "interstitial_lag_min_sec": {
+      "value": 300,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower bound of the physiological lag between interstitial fluid glucose and blood glucose. Exists regardless of API speed.",
+      "min": 60,
+      "max": 1800,
+      "editable": true
+    },
+    "interstitial_lag_max_sec": {
+      "value": 900,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of the physiological interstitial-to-blood lag. Used as the assumed lag, because assuming the shorter lag would understate how far behind the reading is.",
+      "min": 120,
+      "max": 3600,
+      "editable": true
+    },
+    "lag_correction_caution_mmol_l": {
+      "value": 0.3,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Subtracted from the reported value when glucose is falling and the reading is in the caution band. During rapid fall the displayed interstitial value overstates blood glucose, so the correction is downward. INVENTED — requires clinical review before any pilot.",
+      "min": 0,
+      "max": 2,
+      "editable": true
+    },
+    "lag_correction_danger_mmol_l": {
+      "value": 0.5,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Subtracted from the reported value when glucose is falling and the reading is in the danger band. INVENTED — requires clinical review before any pilot.",
+      "min": 0,
+      "max": 3,
+      "editable": true
+    },
+    "glucose_caution_mmol_l": {
+      "value": 5,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Corrected glucose at or below which the caution band applies and the caution lag correction is used.",
+      "min": 3,
+      "max": 8,
+      "editable": true
+    },
+    "glucose_danger_mmol_l": {
+      "value": 4,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Corrected glucose at or below which the danger band applies and the danger lag correction is used.",
+      "min": 2,
+      "max": 6,
+      "editable": true
+    },
+    "glucose_hypo_override_mmol_l": {
+      "value": 3.5,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Corrected glucose at or below which a hard override fires. Hypoglycaemia incapacitates quickly and is not something a weighted average should be able to outvote. INVENTED — the single most important number in this file and it has no source.",
+      "min": 2,
+      "max": 5,
+      "editable": true
+    },
+    "glucose_hyper_high_mmol_l": {
+      "value": 15,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Corrected glucose at or above which the high-glucose contribution reaches maximum. Sustained hyperglycaemia during exertion carries dehydration and ketoacidosis risk.",
+      "min": 10,
+      "max": 30,
+      "editable": true
+    },
+    "glucose_hyper_low_mmol_l": {
+      "value": 10,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Corrected glucose at or below which the high-glucose contribution is zero.",
+      "min": 6,
+      "max": 20,
+      "editable": true
+    },
+    "glucose_ideal_low_mmol_l": {
+      "value": 6,
+      "unit": "mmol/L",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower edge of the range treated as unremarkable during exertion.",
+      "min": 4,
+      "max": 8,
+      "editable": true
+    },
+    "max_usable_total_latency_sec": {
+      "value": 1800,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Total latency (physiological lag plus API delay plus reading age) above which glucose stops contributing to the live risk score and the diabetes module reports UNKNOWN. At the Dexcom standard UK delay of three hours, glucose is never usable on a fireground — which is the honest outcome, not a bug.",
+      "min": 300,
+      "max": 14400,
+      "editable": true
+    },
+    "glucose_stale_after_sec": {
+      "value": 420,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Glucose-specific staleness threshold. CGM reports roughly every five minutes, so the system-wide 60-second threshold would mark every normal reading stale.",
+      "min": 120,
+      "max": 1800,
+      "editable": true
+    },
+    "glucose_missing_after_sec": {
+      "value": 900,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Glucose-specific missing threshold, roughly three missed CGM cadences.",
+      "min": 300,
+      "max": 3600,
+      "editable": true
+    },
+    "exercise_consumption_multiplier_min": {
+      "value": 3,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Lower bound of glucose consumption relative to rest under load, used by the simulated adapter only.",
+      "min": 1,
+      "max": 10,
+      "editable": true
+    },
+    "exercise_consumption_multiplier_max": {
+      "value": 5,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Upper bound of glucose consumption relative to rest under load, used by the simulated adapter only.",
+      "min": 1,
+      "max": 15,
+      "editable": true
+    },
+    "resting_consumption_mmol_l_per_hour": {
+      "value": 0.4,
+      "unit": "mmol/L per h",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Baseline glucose decline per hour at rest, used by the simulated adapter only.",
+      "min": 0.05,
+      "max": 3,
+      "editable": true
+    },
+    "ppe_thermal_consumption_multiplier": {
+      "value": 1.2,
+      "unit": "multiplier",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Additional glucose consumption attributable to thermoregulation in PPE, used by the simulated adapter only.",
+      "min": 1,
+      "max": 2.5,
+      "editable": true
+    },
+    "heat_consumption_multiplier_per_c_above_30": {
+      "value": 0.01,
+      "unit": "multiplier per C",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Additional glucose consumption per degree of humidity-adjusted ambient temperature above 30 C. A crude stand-in for a WBGT modifier, used by the simulated adapter only.",
+      "min": 0,
+      "max": 0.2,
+      "editable": true
+    }
+  }
+}

@@ -13,6 +13,22 @@ Every threshold in `config/risk-default.json` ships as:
 Nothing may be promoted to `validated` or `approved_for_pilot` without a named
 occupational physician signing the checklist at the end of this document.
 
+---
+
+# BLOCKING CLINICAL ITEMS — IN PRIORITY ORDER
+
+Read these first. Everything below this section is detail.
+
+| Priority | Item | Why it blocks | Detail |
+|---|---|---|---|
+| **1** | **Carbon monoxide has no hard override** | CO is the classic firefighter incapacitator — fast onset, no warning, steep dose-response. Every other danger in this system has an unconditional override. CO has only a weighted subscore, which can be diluted to nothing by low scores elsewhere. That is the wrong mechanism for a hazard where the margin between "accumulating" and "minutes left" is narrow. | item 25 |
+| **2** | **No false-alarm budget** | Nothing can be calibrated, and no sensitivity claim can be made, until someone states the operating point. | item 23 |
+| **3** | **Kalman coefficients unverified** | Seven transcribed numbers drive every core temperature in the system. | item 20, `DATA_PROVENANCE.md` blocking item 1 |
+| **4** | **Core temperature override discrepancy** | Two source documents disagree, 39.5 °C vs 40 °C. The stricter value is implemented; the disagreement must not persist silently. | item 26 |
+| **5** | **PurpleAir correction coefficients unverified** | A wrong correction moves every asthma-related alert. | `DATA_PROVENANCE.md` blocking item 2 |
+
+---
+
 ## What external guidance does and does not do here
 
 External material — for example American Diabetes Association or British
@@ -502,6 +518,152 @@ Two of these matter:
 **Needs review:** which set is authoritative, whether a CO override should exist
 and at what concentration, and whether it should be gated by SCBA status.
 
+### 25. Carbon monoxide has no hard override — BLOCKING ITEM 1
+
+**Status: `illustrative` / `unreviewed`. Highest-priority clinical decision in the
+build.**
+
+Every other danger Valoris models has an unconditional hard override: SpO₂, core
+temperature, heart rate, fall, SCBA pressure, blocked escape route, manual mayday.
+**Carbon monoxide has none.**
+
+What CO does today: it contributes to the environmental subscore, weighted at
+`env_weight_co` = 0.40 within a subscore weighted at 0.30 of the composite — so a
+maximum CO contribution moves the total score by at most 12 points. It is then
+attenuated by SCBA on-air status. **A firefighter in a lethal CO atmosphere with
+otherwise unremarkable readings can therefore sit in `CAUTION`.**
+
+That is the wrong mechanism for this hazard. CO has fast onset, no sensory
+warning, and a steep dose-response curve; the margin between "accumulating" and
+"minutes left" is narrow. A weighted average is designed to let one input be
+outvoted by others, which is exactly what must not happen here.
+
+**Three questions for review:**
+
+1. **Should CO have a hard override, and at what ppm?**
+2. **Should the trigger be instantaneous concentration, accumulated
+   carboxyhaemoglobin, or both with different thresholds?** Valoris already
+   estimates COHb (`cohb_pct_per_ppm_hour_at_rest`, first-order, invented
+   coefficients — not Coburn-Forster-Kane). An instantaneous trigger catches a
+   sudden plume; an accumulated trigger catches a long exposure at a
+   moderate concentration. They fail in opposite directions.
+3. **Does SCBA on-air status gate it — and if so, does off-air lower the
+   threshold, or only accelerate accumulation?** The shared
+   `scba_inhaled_fraction_on_air` (currently 0.25, itself provisional per item 17)
+   already attenuates uptake. Whether it should also be permitted to suppress an
+   override is a different question, and gating a hard override on a
+   protective-equipment status Valoris cannot verify is exactly the pattern the
+   safety rules warn against.
+
+**On the 80 ppm figure.** `PROMPT_2_CLAUDE_REVIEW.md` lists an override at
+`CO > 80 ppm`. **That number came from the founder, not from literature**, and
+must be treated as illustrative until sourced. It is recorded here so it is not
+mistaken for a cited threshold; no parameter in the shipped config uses it.
+
+**Nothing has been implemented.** Adding a CO override changes the band of every
+firefighter in a smoke atmosphere and is not an engineering decision.
+
+### 26. Core temperature override — 39.5 °C or 40 °C? — BLOCKING ITEM 4
+
+**Status: discrepancy between source documents. Stricter value implemented,
+pending resolution.**
+
+| Source | Value |
+|---|---|
+| Main build prompt / `config/risk-default.json` (**implemented**) | **39.5 °C** |
+| `PROMPT_2_CLAUDE_REVIEW.md` | 40 °C |
+
+The implemented value is `override_core_temp_critical_c` = 39.5 °C, personalised
+by heat tolerance via `heat_tolerance_core_temp_shift_c` = 0.5 °C — so it fires at
+39.0 °C for a low-heat-tolerance firefighter and 40.0 °C for a high-tolerance one.
+
+**The stricter value has been kept**, on the principle that where two documents
+disagree about a safety threshold the tighter one holds until someone decides.
+Consequence: alerts fire earlier and more often than the review prompt expects,
+which is the safe direction but is a real difference in behaviour.
+
+**Needs review:** which figure is correct; whether personalisation should be able
+to relax it upward to 40.0 °C at all (see item 5); and whether the threshold
+should differ for an *estimated* core temperature versus a measured one, given
+that nothing in Valoris measures it.
+
+**This must not persist silently.** It is a disagreement between two documents
+both treated as authoritative, and it currently resolves by engineering
+preference rather than clinical judgement.
+
+### 29. Glucose — hypoglycaemia override and interstitial lag correction
+
+**Status: `illustrative` / `unreviewed`. Every number below is invented.**
+
+The diabetes module now functionally exists. Before Milestone 3e, BRAVO-1's type 1
+diabetes affected only the declared-condition count — it had no effect on any
+alert. Glucose now has its own scoring term and a hard override, but only for a
+firefighter flagged `glucoseMonitored`.
+
+| Parameter | Value | Note |
+|---|---|---|
+| `glucose_hypo_override_mmol_l` | 3.5 mmol/L | **Fires a hard override.** The single most important number in the diabetes config, and it has no source. |
+| `glucose_low_mmol_l` | 4.0 mmol/L | Low-glucose contribution reaches maximum |
+| `glucose_ideal_low_mmol_l` | 6.0 mmol/L | Below this, low glucose starts contributing |
+| `glucose_hyper_low_mmol_l` | 10 mmol/L | High-glucose contribution starts |
+| `glucose_hyper_high_mmol_l` | 15 mmol/L | High-glucose contribution reaches maximum |
+| `lag_correction_caution_mmol_l` | −0.3 mmol/L | Applied when falling, in the caution band |
+| `lag_correction_danger_mmol_l` | −0.5 mmol/L | Applied when falling, in the danger band |
+
+**On the lag correction.** CGM measures interstitial fluid, not blood, and lags it
+by roughly 5–15 minutes. During a rapid fall — the wildfire deployment scenario —
+the displayed value overstates blood glucose, so the correction is downward. It is
+applied **only when glucose is falling**: correcting a stable reading downward
+would manufacture hypoglycaemia that is not happening.
+
+**Needs review:**
+
+1. Is 3.5 mmol/L the right override threshold, and should it differ for a
+   firefighter under heavy exertion, where symptoms present differently?
+2. Are −0.3 and −0.5 mmol/L defensible corrections, and should the magnitude
+   scale with the trend rate rather than sitting in two bands?
+3. Should hyperglycaemia contribute at all during a fireground deployment, or is
+   it purely a post-incident concern?
+4. Should a firefighter with type 1 diabetes and a **failed** CGM be deployed at
+   all? Valoris currently reports `UNKNOWN` and leaves the decision with the
+   commander, which is correct behaviour but may not be correct policy.
+
+### 30. Glucose staleness uses a CGM cadence, not the system default
+
+**Status: `illustrative` / `unreviewed`.**
+
+CGM reports roughly every five minutes, so the system-wide 60-second stale and
+120-second missing thresholds would mark every normal reading stale and then
+missing. Glucose therefore has its own: `glucose_stale_after_sec` = 420 (7 min)
+and `glucose_missing_after_sec` = 900 (15 min, about three missed cadences).
+
+Separately, total latency above `max_usable_total_latency_sec` = 1800 s (30 min)
+stops glucose contributing at all and the module reports `UNKNOWN`. At the Dexcom
+standard UK delay of three hours, **glucose is never usable on a fireground** —
+which is the honest outcome, not a bug.
+
+**Needs review:** the two cadence thresholds, and the 30-minute usability limit.
+
+### 31. Two defects found while wiring glucose, both fixed
+
+Recorded because both are instances of failure modes worth watching for
+elsewhere.
+
+**A reassuring reading diluted the others.** Glucose entered the physiological
+subscore as a weighted mean term, so a *healthy* glucose reading pulled the
+average of heart rate, SpO₂ and core temperature down — a monitored firefighter
+with normal glucose scored lower than an identical unmonitored colleague. **More
+monitoring must never make someone look safer.** The subscore is now floored at
+its no-glucose value, so an abnormal reading is fully effective and a reassuring
+one cannot wash out another channel. This is the same dilution mechanism that
+makes the missing CO override (item 25) dangerous.
+
+**A dead CGM read SAFE.** A monitored firefighter whose sensor had been silent for
+three hours scored `SAFE`, because glucose was not in the critical-channel set.
+For someone wearing a CGM, hypoglycaemia is their defining risk, so an absent
+glucose reading now forces confidence to `low` and the band away from `SAFE`,
+exactly as an absent heart rate does.
+
 ## References
 
 Every citation below is recorded so that a `literature_derived` claim can be
@@ -558,8 +720,10 @@ No item below may be ticked by an engineer.
 | 24 | Environment-blind core temperature — should heat storage carry more weight? | | | |
 | 25 | Outcomes are interventional; censoring and study design | | | |
 | 26 | **False-alarm budget — blocking for any calibration claim** | | | |
-| 27 | CO hard override — should one exist, and at what concentration? | | | |
-| 28 | Core temperature override 39.5 °C vs 40 °C — which document is authoritative? | | | |
+| **27** | **CO hard override — BLOCKING ITEM 1. Should one exist, at what ppm, on concentration or COHb or both, and does SCBA gate it?** | | | |
+| **28** | **Core temperature override 39.5 °C vs 40 °C — BLOCKING ITEM 4. Which document is authoritative?** | | | |
+| 29 | Glucose — hypoglycaemia override threshold and interstitial lag correction | | | |
+| 30 | Glucose staleness thresholds for a 5-minute CGM cadence | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and

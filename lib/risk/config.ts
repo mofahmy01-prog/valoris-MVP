@@ -54,6 +54,16 @@ export const PARAM_NAMES = [
   "phys_weight_core_temp",
   "phys_weight_fatigue",
   "phys_weight_time_on_task",
+  "phys_weight_glucose",
+
+  // --- Glucose (scored only for firefighters wearing a CGM) ---------------
+  "glucose_stale_after_sec",
+  "glucose_missing_after_sec",
+  "glucose_hypo_override_mmol_l",
+  "glucose_low_mmol_l",
+  "glucose_ideal_low_mmol_l",
+  "glucose_hyper_low_mmol_l",
+  "glucose_hyper_high_mmol_l",
   "hr_max_age_constant_bpm",
   "hr_fraction_low",
   "hr_fraction_high",

@@ -28,6 +28,7 @@ type SeedProfile = {
   prevShiftHours: number;
   cumulativeCoExposureIndex: number;
   cumulativeHeatExposureIndex: number;
+  glucoseMonitored?: boolean;
 };
 
 const PROFILES: SeedProfile[] = [
@@ -69,6 +70,9 @@ const PROFILES: SeedProfile[] = [
     prevShiftHours: 2,
     cumulativeCoExposureIndex: 0.1,
     cumulativeHeatExposureIndex: 0.1,
+    // The only firefighter wearing a CGM. Until Milestone 3e the type 1 diabetes
+    // affected nothing but the condition count; this is what makes it real.
+    glucoseMonitored: true,
   },
   {
     callsign: "BRAVO-2",
@@ -165,6 +169,7 @@ async function main(): Promise<void> {
         prevShiftHours: profile.prevShiftHours,
         cumulativeCoExposureIndex: profile.cumulativeCoExposureIndex,
         cumulativeHeatExposureIndex: profile.cumulativeHeatExposureIndex,
+        glucoseMonitored: profile.glucoseMonitored ?? false,
       },
       update: {
         ageYears: profile.ageYears,
@@ -177,6 +182,7 @@ async function main(): Promise<void> {
         prevShiftHours: profile.prevShiftHours,
         cumulativeCoExposureIndex: profile.cumulativeCoExposureIndex,
         cumulativeHeatExposureIndex: profile.cumulativeHeatExposureIndex,
+        glucoseMonitored: profile.glucoseMonitored ?? false,
       },
     });
   }

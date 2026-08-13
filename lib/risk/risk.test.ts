@@ -776,6 +776,205 @@ describe("assessRisk — position and equipment freshness", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Glucose — only for firefighters wearing a CGM                               */
+/* -------------------------------------------------------------------------- */
+
+const BRAVO_1: HealthProfile = {
+  id: "ff-bravo-1",
+  callsign: "BRAVO-1",
+  age: 34,
+  fitness: "high",
+  restingHrBpm: 55,
+  spo2BaselinePct: 98,
+  conditions: ["type 1 diabetes"],
+  respiratoryRisk: "none",
+  heatTolerance: "avg",
+  prevShiftHours: 2,
+  cumulativeCoExposureIndex: 0.1,
+  cumulativeHeatExposureIndex: 0.1,
+  glucoseMonitored: true,
+};
+
+function withGlucose(mmolL: number | null, ageMs = 60_000): Vitals {
+  const v = freshVitals();
+  v.glucoseMmolL = mmolL;
+  if (mmolL !== null) v.lastUpdatedMs["glucoseMmolL"] = NOW_MS - ageMs;
+  return v;
+}
+
+describe("assessRisk — glucose", () => {
+  it("does not track glucose at all for an unmonitored firefighter", () => {
+    const r = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    // Not missing, not stale — the channel does not exist for this person.
+    expect(r.dataQuality.missingInputs).not.toContain("glucoseMmolL");
+    expect(r.dataQuality.staleInputs).not.toContain("glucoseMmolL");
+  });
+
+  it("does not penalise an unmonitored firefighter for absent glucose", () => {
+    const unmonitored = assessRisk(
+      ALPHA_1,
+      freshVitals(),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    const monitoredInRange = assessRisk(
+      { ...ALPHA_1, glucoseMonitored: true },
+      withGlucose(7),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    // A healthy glucose reading must neither penalise nor flatter: monitoring
+    // must never make someone look safer than an identical unmonitored
+    // colleague, and a reassuring reading must not dilute the other channels.
+    expect(monitoredInRange.subscores.physiological).toBeCloseTo(
+      unmonitored.subscores.physiological,
+      5,
+    );
+  });
+
+  it("never lets a reassuring glucose reading dilute the other channels", () => {
+    const strained = freshVitals({ hrBpm: 180, coreTempC: 39.0 });
+    const withoutGlucose = assessRisk(
+      ALPHA_1,
+      strained,
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    const healthyGlucose = { ...strained, glucoseMmolL: 7 };
+    healthyGlucose.lastUpdatedMs = {
+      ...strained.lastUpdatedMs,
+      glucoseMmolL: NOW_MS - 60_000,
+    };
+    const withGlucoseReading = assessRisk(
+      { ...ALPHA_1, glucoseMonitored: true },
+      healthyGlucose,
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(withGlucoseReading.subscores.physiological).toBeGreaterThanOrEqual(
+      withoutGlucose.subscores.physiological - 1e-9,
+    );
+  });
+
+  it("scores a missing reading at worst case for a monitored firefighter", () => {
+    const present = assessRisk(
+      BRAVO_1,
+      withGlucose(7),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    const absent = assessRisk(
+      BRAVO_1,
+      withGlucose(null),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(absent.dataQuality.missingInputs).toContain("glucoseMmolL");
+    expect(absent.score).toBeGreaterThan(present.score);
+  });
+
+  it("fires a hard override on hypoglycaemia", () => {
+    const r = assessRisk(
+      BRAVO_1,
+      withGlucose(3.2),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.hardOverride).toBe(true);
+    expect(r.band).toBe("CRITICAL");
+    expect(r.hardOverrideReasons.join(" ")).toContain("hypoglycaemia override");
+    expect(r.hardOverrideReasons.join(" ")).toContain("mmol/L");
+  });
+
+  it("does not fire the hypoglycaemia override for an unmonitored firefighter", () => {
+    const v = freshVitals();
+    v.glucoseMmolL = 3.0;
+    v.lastUpdatedMs["glucoseMmolL"] = NOW_MS - 60_000;
+    const r = assessRisk(ALPHA_1, v, benignEnvironment(), benignPosition(), CONFIG, NOW_MS);
+    expect(r.hardOverride).toBe(false);
+  });
+
+  it("scores hyperglycaemia as well as hypoglycaemia", () => {
+    const inRange = assessRisk(BRAVO_1, withGlucose(7), benignEnvironment(), benignPosition(), CONFIG, NOW_MS);
+    const high = assessRisk(BRAVO_1, withGlucose(16), benignEnvironment(), benignPosition(), CONFIG, NOW_MS);
+    expect(high.score).toBeGreaterThan(inRange.score);
+    expect(high.hardOverride).toBe(false);
+  });
+
+  it("uses a CGM cadence for staleness, not the 60-second system default", () => {
+    // Four minutes old: normal for a CGM, and would be stale under the global rule.
+    const normal = assessRisk(
+      BRAVO_1,
+      withGlucose(7, 240_000),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(normal.dataQuality.staleInputs).not.toContain("glucoseMmolL");
+    expect(normal.dataQuality.missingInputs).not.toContain("glucoseMmolL");
+
+    const stale = assessRisk(
+      BRAVO_1,
+      withGlucose(7, 500_000),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(stale.dataQuality.staleInputs).toContain("glucoseMmolL");
+
+    const gone = assessRisk(
+      BRAVO_1,
+      withGlucose(7, 1_200_000),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(gone.dataQuality.missingInputs).toContain("glucoseMmolL");
+  });
+
+  it("a reading too old to trust cannot fire the override", () => {
+    // A three-hour-old Dexcom-standard reading arrives already nulled by the CGM
+    // pipeline, but even a stored value beyond the missing threshold must not
+    // trigger an alert on stale evidence.
+    const r = assessRisk(
+      BRAVO_1,
+      withGlucose(3.0, 3 * 60 * 60_000),
+      benignEnvironment(),
+      benignPosition(),
+      CONFIG,
+      NOW_MS,
+    );
+    expect(r.dataQuality.missingInputs).toContain("glucoseMmolL");
+    expect(r.hardOverride).toBe(false);
+    expect(r.band).not.toBe("SAFE");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Configuration                                                               */
 /* -------------------------------------------------------------------------- */
 

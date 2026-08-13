@@ -25,6 +25,15 @@ export type HealthProfile = {
   prevShiftHours: number;
   cumulativeCoExposureIndex: number;
   cumulativeHeatExposureIndex: number;
+
+  /**
+   * True when this firefighter wears a CGM and glucose is part of their picture.
+   *
+   * Glucose is scored ONLY for monitored firefighters. Without this flag an
+   * absent glucose reading would count as a missing input for everyone, scoring
+   * the whole crew at worst case for a channel most of them do not have.
+   */
+  glucoseMonitored?: boolean;
 };
 
 export type Vitals = {
@@ -67,6 +76,19 @@ export type Vitals = {
    * own growing variance rather than through a special case.
    */
   coreTempEstimateSdC?: number | null;
+
+  /**
+   * Lag-corrected blood glucose, mmol/L — never mg/dL.
+   *
+   * Only consumed when the profile sets `glucoseMonitored`. Supply the value the
+   * CGM pipeline judged USABLE: null when total latency makes it unusable, so
+   * the staleness rules turn it into UNKNOWN rather than presenting a
+   * three-hour-old number as current.
+   *
+   * Its `lastUpdatedMs` entry must be the EFFECTIVE sample time — when the blood
+   * glucose it represents actually occurred — not when the reading arrived.
+   */
+  glucoseMmolL?: number | null;
 };
 
 export type Environment = {

@@ -40,6 +40,9 @@ model FirefighterProfile {
   prevShiftHours              Float
   cumulativeCoExposureIndex   Float
   cumulativeHeatExposureIndex Float
+  /// True when this firefighter wears a CGM. Glucose is scored ONLY for them,
+  /// and for them an absent glucose reading is a critical missing input.
+  glucoseMonitored            Boolean @default(false)
 
   createdAtUtc DateTime @default(now())
   updatedAtUtc DateTime @updatedAt

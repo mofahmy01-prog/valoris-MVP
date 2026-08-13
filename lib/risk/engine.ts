@@ -132,6 +132,21 @@ const FIX_DERIVED_CHANNELS: readonly string[] = [
 /** Absence of any of these forces the band to UNKNOWN and confidence to low. */
 const CRITICAL_CHANNELS: readonly string[] = ["hrBpm", "spo2Pct", "coreTempC"];
 
+/**
+ * Critical channels for a specific firefighter.
+ *
+ * Glucose is critical for someone wearing a CGM. Their defining risk is
+ * hypoglycaemia, so a dead CGM means the one thing most likely to incapacitate
+ * them is unobserved — and without this, a monitored diabetic whose sensor died
+ * three hours ago reads SAFE, which is precisely the failure the missing-data
+ * rule exists to prevent.
+ */
+function criticalChannelsFor(profile: HealthProfile): readonly string[] {
+  return profile.glucoseMonitored === true
+    ? [...CRITICAL_CHANNELS, "glucoseMmolL"]
+    : CRITICAL_CHANNELS;
+}
+
 type ChannelState = "ok" | "stale" | "missing";
 
 type Freshness = {
@@ -145,6 +160,7 @@ function assessFreshness(
   vitals: Vitals,
   env: Environment,
   pos: Position,
+  profile: HealthProfile,
   config: RiskConfig,
   nowMs: number,
 ): Freshness {
@@ -158,7 +174,10 @@ function assessFreshness(
     key: string,
     hasValue: boolean,
     lastUpdatedMs: Record<string, number> | undefined,
+    thresholds?: { staleSec: number; missingSec: number },
   ): void => {
+    const staleLimit = thresholds?.staleSec ?? staleAfterSec;
+    const missingLimit = thresholds?.missingSec ?? missingAfterSec;
     const ts = lastUpdatedMs?.[key];
     if (typeof ts === "number" && Number.isFinite(ts)) {
       const ageSec = Math.max(0, (nowMs - ts) / 1000);
@@ -176,7 +195,7 @@ function assessFreshness(
     }
     const ageSec = Math.max(0, (nowMs - ts) / 1000);
     state[key] =
-      ageSec > missingAfterSec ? "missing" : ageSec > staleAfterSec ? "stale" : "ok";
+      ageSec > missingLimit ? "missing" : ageSec > staleLimit ? "stale" : "ok";
   };
 
   const present = (value: number | null): boolean =>
@@ -197,6 +216,17 @@ function assessFreshness(
   inspect("escapeRouteStatus", true, pos.lastUpdatedMs);
   inspect("scbaPressurePct", present(pos.scbaPressurePct), pos.lastUpdatedMs);
 
+  // Glucose is tracked ONLY for a firefighter wearing a CGM. For everyone else
+  // the channel does not exist, rather than existing and being permanently
+  // missing — which would penalise the whole crew for a sensor most do not have.
+  // It carries its own thresholds because CGM reports roughly every 5 minutes.
+  if (profile.glucoseMonitored === true) {
+    inspect("glucoseMmolL", present(vitals.glucoseMmolL ?? null), vitals.lastUpdatedMs, {
+      staleSec: param(config, "glucose_stale_after_sec"),
+      missingSec: param(config, "glucose_missing_after_sec"),
+    });
+  }
+
   // A distance is only as trustworthy as the fix it was measured from.
   if (state["positionFix"] === "missing") {
     for (const key of FIX_DERIVED_CHANNELS) state[key] = "missing";
@@ -209,7 +239,12 @@ function assessFreshness(
   // Build the reported lists in declaration order so output is deterministic.
   const stale: string[] = [];
   const missing: string[] = [];
-  for (const key of [...VITAL_CHANNELS, ...ENV_CHANNELS, ...POSITION_CHANNELS]) {
+  for (const key of [
+    ...VITAL_CHANNELS,
+    "glucoseMmolL",
+    ...ENV_CHANNELS,
+    ...POSITION_CHANNELS,
+  ]) {
     if (state[key] === "stale") stale.push(key);
     else if (state[key] === "missing") missing.push(key);
   }
@@ -437,6 +472,36 @@ function physiological(
   );
   const totLabel = `${fmt(Math.max(0, pos.timeOnTaskMin), 0)} min continuously on task`;
 
+  /* --- Glucose, for monitored firefighters only -------------------------- */
+  const monitored = profile.glucoseMonitored === true;
+  const glucose = monitored
+    ? usable("glucoseMmolL", vitals.glucoseMmolL ?? null, freshness)
+    : null;
+
+  // Both directions matter: hypoglycaemia incapacitates quickly, and sustained
+  // hyperglycaemia during exertion carries dehydration and ketoacidosis risk.
+  const glucoseScore = !monitored
+    ? 0
+    : glucose === null
+      ? MAX_SUBSCORE
+      : Math.max(
+          descendingRamp(
+            glucose,
+            param(config, "glucose_low_mmol_l"),
+            param(config, "glucose_ideal_low_mmol_l"),
+          ),
+          ramp(
+            glucose,
+            param(config, "glucose_hyper_low_mmol_l"),
+            param(config, "glucose_hyper_high_mmol_l"),
+          ),
+        );
+  const glucoseLabel = !monitored
+    ? "Glucose not monitored for this firefighter"
+    : glucose === null
+      ? "Glucose unavailable or too old to trust — scored as worst case"
+      : `Glucose ${fmt(glucose, 1)} mmol/L (lag-corrected, estimated)`;
+
   const terms: Array<{ key: string; label: string; p: ParamName; value: number }> = [
     { key: "hr", label: hrLabel, p: "phys_weight_hr", value: hrScore },
     { key: "spo2", label: spo2Label, p: "phys_weight_spo2", value: spo2Score },
@@ -450,19 +515,53 @@ function physiological(
     },
   ];
 
-  const value = weightedMean(
+  // Zero weight for an unmonitored firefighter. `weightedMean` normalises by the
+  // weight sum, so the remaining terms simply renormalise — nobody is penalised
+  // for a channel they do not have.
+  const glucoseWeight = monitored ? param(config, "phys_weight_glucose") : 0;
+
+  const weighted: WeightedTerm[] = [
+    ...terms.map((t) => ({ weight: param(config, t.p), value: t.value })),
+    { weight: glucoseWeight, value: glucoseScore },
+  ];
+
+  // Glucose may only ever RAISE the subscore, never lower it.
+  //
+  // A weighted mean dilutes: adding a healthy glucose reading at weight 0.25
+  // would pull the average of the other terms down, so a monitored firefighter
+  // with normal glucose would score lower than an identical unmonitored
+  // colleague. More monitoring must never make someone look safer. Flooring at
+  // the no-glucose mean keeps an abnormal reading fully effective while
+  // preventing a reassuring one from washing out heart rate or core temperature.
+  const withoutGlucose = weightedMean(
     terms.map((t) => ({ weight: param(config, t.p), value: t.value })),
   );
+  const value = monitored
+    ? Math.max(withoutGlucose, weightedMean(weighted))
+    : withoutGlucose;
   const composite = param(config, "weight_physiological");
-  const weightSum = terms.reduce((s, t) => s + Math.max(0, param(config, t.p)), 0);
-  const drivers = terms.map((t) => ({
-    key: t.key,
-    label: t.label,
-    weighted:
-      weightSum === 0
-        ? 0
-        : (composite * Math.max(0, param(config, t.p)) * t.value) / weightSum,
-  }));
+  const weightSum =
+    terms.reduce((s, t) => s + Math.max(0, param(config, t.p)), 0) +
+    Math.max(0, glucoseWeight);
+
+  const drivers = [
+    ...terms.map((t) => ({
+      key: t.key,
+      label: t.label,
+      weighted:
+        weightSum === 0
+          ? 0
+          : (composite * Math.max(0, param(config, t.p)) * t.value) / weightSum,
+    })),
+    {
+      key: "glucose",
+      label: glucoseLabel,
+      weighted:
+        weightSum === 0
+          ? 0
+          : (composite * Math.max(0, glucoseWeight) * glucoseScore) / weightSum,
+    },
+  ];
 
   return { value, drivers };
 }
@@ -738,6 +837,7 @@ function profileVulnerability(
 function hardOverrides(
   vitals: Vitals,
   pos: Position,
+  profile: HealthProfile,
   freshness: Freshness,
   th: PersonalThresholds,
   config: RiskConfig,
@@ -811,6 +911,20 @@ function hardOverrides(
     }
   }
 
+  // Hypoglycaemia incapacitates quickly and must not be outvoted by a weighted
+  // average. Only for a monitored firefighter, and only on a value the CGM
+  // pipeline judged usable — a three-hour-old reading fires nothing, because it
+  // arrives here already nulled.
+  if (profile.glucoseMonitored === true) {
+    const glucose = usable("glucoseMmolL", vitals.glucoseMmolL ?? null, freshness);
+    const hypoAt = param(config, "glucose_hypo_override_mmol_l");
+    if (glucose !== null && glucose <= hypoAt) {
+      reasons.push(
+        `Blood glucose ${fmt(glucose, 1)} mmol/L at or below the ${fmt(hypoAt, 1)} mmol/L hypoglycaemia override threshold (lag-corrected estimate)`,
+      );
+    }
+  }
+
   if (pos.manualMaydayActive === true) {
     reasons.push("Manual mayday declared");
   }
@@ -834,11 +948,11 @@ function hardOverrides(
 function deriveConfidence(
   freshness: Freshness,
   vitals: Vitals,
+  profile: HealthProfile,
   config: RiskConfig,
 ): Confidence {
-  const criticalMissing = freshness.missing.some((k) =>
-    CRITICAL_CHANNELS.includes(k),
-  );
+  const critical = criticalChannelsFor(profile);
+  const criticalMissing = freshness.missing.some((k) => critical.includes(k));
   if (criticalMissing) return "low";
 
   let confidence: Confidence = "high";
@@ -902,7 +1016,7 @@ function buildExplanation(
 ): string {
   const sentences: string[] = [];
   const criticalMissing = freshness.missing.filter((k) =>
-    CRITICAL_CHANNELS.includes(k),
+    criticalChannelsFor(profile).includes(k),
   );
 
   if (overrideReasons.length > 0) {
@@ -954,7 +1068,7 @@ export function assessRisk(
   config: RiskConfig,
   nowMs: number,
 ): RiskAssessment {
-  const freshness = assessFreshness(vitals, env, pos, config, nowMs);
+  const freshness = assessFreshness(vitals, env, pos, profile, config, nowMs);
   const th = personalise(profile, config);
 
   const phys = physiological(profile, vitals, pos, freshness, th, config);
@@ -974,13 +1088,12 @@ export function assessRisk(
   );
   const roundedScore = round1(score);
 
-  const overrideReasons = hardOverrides(vitals, pos, freshness, th, config);
+  const overrideReasons = hardOverrides(vitals, pos, profile, freshness, th, config);
   const hardOverride = overrideReasons.length > 0;
 
-  const confidence = deriveConfidence(freshness, vitals, config);
-  const criticalMissing = freshness.missing.some((k) =>
-    CRITICAL_CHANNELS.includes(k),
-  );
+  const confidence = deriveConfidence(freshness, vitals, profile, config);
+  const critical = criticalChannelsFor(profile);
+  const criticalMissing = freshness.missing.some((k) => critical.includes(k));
 
   let band = bandFromScore(roundedScore, config);
   // Missing critical vitals, or low confidence, can never read as SAFE.
