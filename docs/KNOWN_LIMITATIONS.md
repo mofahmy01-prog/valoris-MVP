@@ -236,6 +236,42 @@ engine change is needed before then.
     does mean `high` is unreachable in practice, which makes the top of the
     confidence scale currently decorative.
 
+## PurpleAir PM2.5
+
+29. **The correction coefficients are unverified.** The three-regime structure is
+    published (Barkjohn et al. 2022, corrigendum 2024); the numbers in
+    `config/purpleair-default.json` were transcribed without reading the paper.
+    They are marked `literature_derived` with a citation and every rationale says
+    UNVERIFIED. Blocking item 2 in `docs/DATA_PROVENANCE.md`.
+
+30. **Corrected PM2.5 still underestimates smoke by roughly 12%.** The reported
+    regression slope during smoke events is about 0.88. This is **recorded, not
+    corrected out**: applying an unverified bias adjustment on top of an
+    unverified correction would compound the error rather than reduce it. The
+    figure travels with every corrected reading as `knownBiasNote` and appears in
+    the model assumptions panel.
+
+31. **Only the `cf_1` channel is accepted.** The `atm` channel diverges above
+    30 µg/m³, reaching a ratio of about 0.66 against cf_1 at 80 µg/m³, and the EPA
+    correction is fitted against cf_1. Supplying `atm` data is a 400, not a
+    silent mis-correction.
+
+32. **A rejected reading is missing, never a number.** Channel disagreement beyond
+    the configured limit, an implausible value, or an out-of-range humidity
+    rejects the reading entirely: `pm25UgM3` is null, the staleness rules score it
+    at worst case, and the band moves toward `UNKNOWN`. The raw value is still
+    stored for debugging but is never substituted into the score.
+
+33. **`isRealSensorData` is an assertion, not a verification.** A reading is
+    promoted to Tier A only when the caller sets that flag, and Valoris cannot
+    check whether the caller is telling the truth. It defaults to false so
+    simulated data cannot drift into claiming Tier A by omission.
+
+34. **No PurpleAir API client exists.** Nothing in the build calls the network.
+    `scripts/fetch-historical.ts` (Milestone 3g) will fetch fixtures once, by
+    hand, and commit them. Attribution is required by PurpleAir's licence and is
+    recorded in the provenance record for the report footer.
+
 ## Scope
 
 16. **No autonomous action, ever.** Valoris recommends. The commander decides.

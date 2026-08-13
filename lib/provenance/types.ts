@@ -111,6 +111,7 @@ export const PROVENANCE: {
   simulatedVitals: Provenance;
   simulatedPosition: Provenance;
   derivedPhysiology: Provenance;
+  purpleAirEnvironment: Provenance;
   geometricFireFront: Provenance;
   observedPerimeter: Provenance;
   unavailableFireFront: Provenance;
@@ -142,6 +143,15 @@ export const PROVENANCE: {
     isSimulated: true,
     modelRef:
       "Reduced ISO 7933 PHS heat balance, Karvonen heart-rate reserve with PPE penalty, blended core temperature estimate, fatigue and toxic exposure accumulators. See docs/CLINICAL_ASSUMPTIONS.md.",
+  },
+  purpleAirEnvironment: {
+    dataTier: "A_REAL_ENVIRONMENTAL",
+    source: "purpleair_sensor_network",
+    licence:
+      "PurpleAir data requires attribution. The attribution must appear in the report footer.",
+    isSimulated: false,
+    modelRef:
+      "PM2.5 corrected using the EPA US-wide equation extended for wildfire smoke (Barkjohn et al. 2022). Known limitation: approximately 12% underestimate at smoke concentrations. Raw sensor values retained. Correction coefficients UNVERIFIED — see docs/DATA_PROVENANCE.md blocking item 2.",
   },
   geometricFireFront: {
     dataTier: "C_SYNTHETIC_MODEL_DRIVEN",

@@ -152,6 +152,20 @@ model Observation {
   windSpeedMs  Float?
   windDirDeg   Float?
 
+  // --- PurpleAir PM2.5, raw and corrected ---------------------------------
+  // Raw is NEVER overwritten. `pm25UgM3` above carries the CORRECTED value the
+  // engine consumed; these record what the sensor actually said and what was
+  // done to it. A rejected reading leaves pm25UgM3 null, which the staleness
+  // rules then treat as missing.
+  pm25RawUgM3          Float?
+  pm25CorrectedUgM3    Float?
+  pm25CorrectionMethod String?
+  pm25CorrectionRegime String?
+  pm25QualityFlag      String?
+  pm25ChannelAgreement Float?
+  pm25SensorId         String?
+  pm25IsRealSensorData Boolean @default(false)
+
   ambientTempUpdatedAtUtc DateTime?
   humidityUpdatedAtUtc    DateTime?
   coUpdatedAtUtc          DateTime?

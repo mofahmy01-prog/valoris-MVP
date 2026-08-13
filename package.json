@@ -19,7 +19,8 @@
     "db:guards": "tsx scripts/apply-db-guards.ts",
     "verify:m3b": "tsx scripts/verify-m3b.ts",
     "migrate": "tsx scripts/migrate.ts",
-    "verify:repro": "tsx scripts/verify-reproducibility.ts"
+    "verify:repro": "tsx scripts/verify-reproducibility.ts",
+    "verify:m3d": "tsx scripts/verify-m3d.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

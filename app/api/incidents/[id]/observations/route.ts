@@ -17,6 +17,8 @@ import { appendAuditEvent } from "@/lib/db/audit";
 import { notFound, ok, parseJsonBody } from "@/lib/api/respond";
 import { postObservationsSchema } from "@/lib/api/schemas";
 import { distanceToPerimeterM } from "@/lib/fire/geometry";
+import { DEFAULT_PURPLEAIR_CONFIG } from "@/lib/sensors/default-config";
+import { correctPurpleAir } from "@/lib/sensors/purpleair-correction";
 import { parameterValues } from "@/lib/params/parameters";
 import { DEFAULT_PHYSIOLOGY_CONFIG } from "@/lib/physiology/default-config";
 import { DEFAULT_RISK_CONFIG } from "@/lib/risk/default-config";
@@ -112,8 +114,17 @@ export async function POST(
           modelRef: "provenance" in front ? front.provenance : undefined,
         };
 
+  // A real PurpleAir reading promotes the environment domain to Tier A. Only a
+  // caller that actually pulled from the sensor network may assert this, and
+  // `isRealSensorData` defaults to false, so simulated data stays Tier C.
+  const anyRealPurpleAir = parsed.data.observations.some(
+    (o) => o.environment.purpleAir?.isRealSensorData === true,
+  );
+
   const observationProvenance: ObservationProvenance = {
-    environment: PROVENANCE.simulatedEnvironment,
+    environment: anyRealPurpleAir
+      ? PROVENANCE.purpleAirEnvironment
+      : PROVENANCE.simulatedEnvironment,
     vitals: PROVENANCE.simulatedVitals,
     position: PROVENANCE.simulatedPosition,
     derivedPhysiology: PROVENANCE.derivedPhysiology,
@@ -156,6 +167,36 @@ export async function POST(
     if (deployment === undefined) continue; // already rejected above
 
     const recordedAt = input.recordedAtUtc;
+
+    /* --- PurpleAir: correct before anything else sees the number --------- */
+    // Raw PurpleAir overreads by roughly 60% and is non-linear above 300 ug/m3.
+    // Correction happens here, once, on the ingestion path — so nothing
+    // downstream can accidentally consume a raw value.
+    const pa = input.environment.purpleAir;
+    const corrected = pa === undefined ? null : correctPurpleAir(
+      {
+        pm25_cf_1_a: pa.pm25_cf_1_a,
+        pm25_cf_1_b: pa.pm25_cf_1_b,
+        humidityPct: pa.humidityPct,
+        temperatureC: pa.temperatureC,
+        timestampMs: (pa.updatedAtUtc ?? recordedAt).getTime(),
+      },
+      DEFAULT_PURPLEAIR_CONFIG,
+    );
+
+    // A rejected reading is MISSING, not zero and not the raw value. Null here
+    // flows into the staleness rules, which score it at worst case and move the
+    // band to UNKNOWN.
+    const pm25ForEngine =
+      corrected === null
+        ? channelValue(input.environment.pm25UgM3)
+        : corrected.valueUgM3;
+    const pm25Timestamp =
+      corrected === null
+        ? channelTimestamp(input.environment.pm25UgM3, recordedAt)
+        : corrected.valueUgM3 === null
+          ? null
+          : (pa?.updatedAtUtc ?? recordedAt);
 
     // Derive the distance only when the caller did not measure one. Valoris
     // computes separation from a supplied perimeter; it never invents the
@@ -305,14 +346,26 @@ export async function POST(
         ambientTempC: channelValue(input.environment.ambientTempC),
         humidityPct: channelValue(input.environment.humidityPct),
         coPpm: channelValue(input.environment.coPpm),
-        pm25UgM3: channelValue(input.environment.pm25UgM3),
+        pm25UgM3: pm25ForEngine,
         windSpeedMs: channelValue(input.environment.windSpeedMs),
         windDirDeg: channelValue(input.environment.windDirDeg),
+
+        pm25RawUgM3: corrected?.rawUgM3 ?? null,
+        pm25CorrectedUgM3: corrected?.valueUgM3 ?? null,
+        pm25CorrectionMethod: corrected?.correctionMethod ?? null,
+        pm25CorrectionRegime: corrected?.regime ?? null,
+        pm25QualityFlag: corrected?.qualityFlag ?? null,
+        pm25ChannelAgreement:
+          corrected !== null && Number.isFinite(corrected.channelAgreement)
+            ? corrected.channelAgreement
+            : null,
+        pm25SensorId: pa?.sensorId ?? null,
+        pm25IsRealSensorData: pa?.isRealSensorData ?? false,
 
         ambientTempUpdatedAtUtc: channelTimestamp(input.environment.ambientTempC, recordedAt),
         humidityUpdatedAtUtc: channelTimestamp(input.environment.humidityPct, recordedAt),
         coUpdatedAtUtc: channelTimestamp(input.environment.coPpm, recordedAt),
-        pm25UpdatedAtUtc: channelTimestamp(input.environment.pm25UgM3, recordedAt),
+        pm25UpdatedAtUtc: pm25Timestamp,
         windSpeedUpdatedAtUtc: channelTimestamp(input.environment.windSpeedMs, recordedAt),
         windDirUpdatedAtUtc: channelTimestamp(input.environment.windDirDeg, recordedAt),
 
@@ -595,7 +648,17 @@ export async function GET(
       fatiguePct: o.fatiguePct,
       ambientTempC: o.ambientTempC,
       coPpm: o.coPpm,
+      /** The CORRECTED value the engine consumed. Null when rejected. */
       pm25UgM3: o.pm25UgM3,
+      /** What the sensor actually said, never overwritten. */
+      pm25RawUgM3: o.pm25RawUgM3,
+      pm25CorrectedUgM3: o.pm25CorrectedUgM3,
+      pm25CorrectionMethod: o.pm25CorrectionMethod,
+      pm25CorrectionRegime: o.pm25CorrectionRegime,
+      pm25QualityFlag: o.pm25QualityFlag,
+      pm25ChannelAgreement: o.pm25ChannelAgreement,
+      pm25SensorId: o.pm25SensorId,
+      pm25IsRealSensorData: o.pm25IsRealSensorData,
       distanceToFireFrontM: o.distanceToFireFrontM,
       escapeRouteStatus: o.escapeRouteStatus,
       scbaPressurePct: o.scbaPressurePct,

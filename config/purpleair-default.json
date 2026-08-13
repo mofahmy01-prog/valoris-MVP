@@ -1,0 +1,156 @@
+{
+  "modelVersion": "valoris-purpleair-0.1.0",
+  "notice": "SIMULATION MODE — NOT FOR OPERATIONAL USE. The correction STRUCTURE is published (Barkjohn et al. 2022, corrigendum 2024). The COEFFICIENT VALUES below are an UNVERIFIED transcription — nobody on this project has read the paper. See docs/DATA_PROVENANCE.md blocking item 2. PM2.5 feeds the environmental subscore and, for a firefighter with declared respiratory risk, the thresholds that fire earliest; a wrong correction moves every asthma-related alert in the system.",
+  "parameters": {
+    "us_wide_slope": {
+      "value": 0.524,
+      "unit": "dimensionless",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Slope applied to the raw cf_1 channel mean in the EPA US-wide multi-linear correction. TRANSCRIPTION UNVERIFIED against the primary source.",
+      "citation": "ref [3]",
+      "min": 0.1,
+      "max": 1.5,
+      "editable": true
+    },
+    "us_wide_humidity_coeff": {
+      "value": -0.0862,
+      "unit": "ug/m3 per %RH",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Relative humidity term in the EPA US-wide correction. Negative because the optical sensor overreads in humid air. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": -1,
+      "max": 1,
+      "editable": true
+    },
+    "us_wide_intercept": {
+      "value": 5.75,
+      "unit": "ug/m3",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Constant term in the EPA US-wide correction. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": -20,
+      "max": 20,
+      "editable": true
+    },
+    "extreme_quadratic_coeff": {
+      "value": -0.000023,
+      "unit": "per ug/m3",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Quadratic term for the extreme smoke regime, capturing the sensor's non-linear saturation above roughly 400 ug/m3. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": -0.01,
+      "max": 0.01,
+      "editable": true
+    },
+    "extreme_linear_coeff": {
+      "value": 0.532,
+      "unit": "dimensionless",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Linear term in the extreme smoke fit. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": 0.1,
+      "max": 1.5,
+      "editable": true
+    },
+    "extreme_humidity_coeff": {
+      "value": -0.0861,
+      "unit": "ug/m3 per %RH",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Relative humidity term in the extreme smoke fit. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": -1,
+      "max": 1,
+      "editable": true
+    },
+    "extreme_intercept": {
+      "value": 3.67,
+      "unit": "ug/m3",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Constant term in the extreme smoke fit. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": -20,
+      "max": 20,
+      "editable": true
+    },
+    "transition_low_ug_m3": {
+      "value": 300,
+      "unit": "ug/m3",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Raw concentration at or below which the EPA US-wide correction is used alone. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": 50,
+      "max": 600,
+      "editable": true
+    },
+    "transition_high_ug_m3": {
+      "value": 400,
+      "unit": "ug/m3",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Raw concentration at or above which the extreme smoke quadratic is used alone. Between the two bounds the results are blended linearly, so the corrected value has no discontinuity at either boundary. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": 100,
+      "max": 1000,
+      "editable": true
+    },
+    "channel_disagreement_degraded_ug_m3": {
+      "value": 5,
+      "unit": "ug/m3",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Absolute channel A-to-B difference above which a reading is flagged degraded, applied together with the fractional threshold as max(absolute, fractional).",
+      "min": 1,
+      "max": 50,
+      "editable": true
+    },
+    "channel_disagreement_degraded_frac": {
+      "value": 0.2,
+      "unit": "fraction of mean",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fractional channel disagreement above which a reading is flagged degraded.",
+      "min": 0.05,
+      "max": 0.8,
+      "editable": true
+    },
+    "channel_disagreement_rejected_frac": {
+      "value": 0.5,
+      "unit": "fraction of mean",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fractional channel disagreement above which the reading is rejected entirely and treated as MISSING — which moves the band to UNKNOWN rather than substituting a plausible number.",
+      "min": 0.2,
+      "max": 1,
+      "editable": true
+    },
+    "max_plausible_ug_m3": {
+      "value": 2000,
+      "unit": "ug/m3",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Ceiling above which a reading is treated as a sensor fault rather than smoke. Negative values are rejected outright.",
+      "min": 500,
+      "max": 10000,
+      "editable": true
+    },
+    "known_smoke_slope": {
+      "value": 0.88,
+      "unit": "dimensionless",
+      "sourceStatus": "literature_derived",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Reported regression slope of corrected against reference PM2.5 during smoke events — approximately a 12% residual underestimate. Recorded so the bias is documented rather than hidden; NOT applied as a further correction, because compounding an unverified correction with an unverified bias adjustment would compound the error. TRANSCRIPTION UNVERIFIED.",
+      "citation": "ref [3]",
+      "min": 0.5,
+      "max": 1.5,
+      "editable": true
+    }
+  }
+}

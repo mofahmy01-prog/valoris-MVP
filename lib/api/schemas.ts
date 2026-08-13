@@ -90,6 +90,36 @@ export const observationSchema = z
         pm25UgM3: channelSchema.optional(),
         windSpeedMs: channelSchema.optional(),
         windDirDeg: channelSchema.optional(),
+
+        /**
+         * A raw two-channel PurpleAir reading. When present, the EPA US-wide
+         * correction (extended for wildfire smoke) is applied server-side and
+         * the CORRECTED value is what the risk engine consumes. Raw values are
+         * stored alongside and never overwritten.
+         *
+         * Supplying this takes precedence over `pm25UgM3`: a caller must not be
+         * able to hand in a pre-corrected number and a raw one that disagree.
+         */
+        purpleAir: z
+          .object({
+            /** pm2.5_cf_1 channel A. The atm channel is not accepted. */
+            pm25_cf_1_a: z.number().finite(),
+            /** pm2.5_cf_1 channel B. */
+            pm25_cf_1_b: z.number().finite(),
+            humidityPct: z.number().finite(),
+            temperatureC: z.number().finite(),
+            sensorId: z.string().trim().min(1).max(120),
+            updatedAtUtc: z.coerce.date().nullable().optional(),
+            /**
+             * Only a caller that actually pulled this from the PurpleAir network
+             * may set this true. It is what promotes the reading to Tier A —
+             * real environmental measurement — so it defaults to false and
+             * simulated data stays Tier C.
+             */
+            isRealSensorData: z.boolean().default(false),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
 

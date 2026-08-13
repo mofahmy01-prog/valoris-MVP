@@ -119,6 +119,24 @@ replay.
 
 ---
 
+## 3b. Revised Milestone 3 sequence
+
+Agreed order, superseding both the addendum's numbering and the earlier working
+sequence:
+
+| Stage | Scope | State |
+|---|---|---|
+| 3a | Tier C physiology models | **Done** |
+| 3b | Six profiles wired to 3a | **Done** |
+| 3c | Tier A/B/C provenance labelling | **Done** |
+| 3d-prime | Kalman core temp, citations, confidence effect, SCBA unification | **Done** |
+| 3d | PurpleAir EPA correction | **Done** |
+| 3e | Dexcom sandbox behind a vendor-agnostic `CgmAdapter` | Next |
+| 3f | Tier B noise models | Not started |
+| 3g | Tier A fixture loader + `scripts/fetch-historical.ts` | Not started |
+| 3h | Five live scenarios + injection controls | Not started |
+| 3i | Palisades replay | Not started — the credibility artefact, do not drop |
+
 ## 4. Unscheduled items from the Data Addendum
 
 The addendum's revised Milestone 3 sequence was 3c Tier B noise models, 3d Tier A
