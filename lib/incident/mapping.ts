@@ -96,6 +96,12 @@ export function toVitals(
     row.hydrationPct,
     row.hydrationUpdatedAtUtc,
   );
+  putTimestamp(
+    lastUpdatedMs,
+    "glucoseMmolL",
+    row.glucoseMmolL,
+    row.glucoseUpdatedAtUtc,
+  );
 
   const vitals: Vitals = {
     hrBpm: row.hrBpm,
@@ -105,6 +111,7 @@ export function toVitals(
     fatiguePct,
     hydrationPct: row.hydrationPct,
     fallDetected: row.fallDetected,
+    glucoseMmolL: row.glucoseMmolL,
     lastUpdatedMs,
   };
   if (recentSpo2Pct !== undefined && recentSpo2Pct.length > 0) {

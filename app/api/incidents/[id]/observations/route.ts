@@ -335,6 +335,8 @@ export async function POST(
         fatiguePct: channelValue(input.vitals.fatiguePct),
         hydrationPct: channelValue(input.vitals.hydrationPct),
         fallDetected: input.vitals.fallDetected,
+        glucoseMmolL: channelValue(input.vitals.glucoseMmolL),
+        glucoseUpdatedAtUtc: channelTimestamp(input.vitals.glucoseMmolL, recordedAt),
 
         hrUpdatedAtUtc: channelTimestamp(input.vitals.hrBpm, recordedAt),
         spo2UpdatedAtUtc: channelTimestamp(input.vitals.spo2Pct, recordedAt),

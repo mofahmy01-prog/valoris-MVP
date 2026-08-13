@@ -139,6 +139,8 @@ model Observation {
   fatiguePct     Float?
   hydrationPct   Float?
   fallDetected   Boolean @default(false)
+  /// Lag-corrected blood glucose, mmol/L. Only for a firefighter with a CGM.
+  glucoseMmolL   Float?
 
   hrUpdatedAtUtc        DateTime?
   spo2UpdatedAtUtc      DateTime?
@@ -146,6 +148,7 @@ model Observation {
   respRateUpdatedAtUtc  DateTime?
   fatigueUpdatedAtUtc   DateTime?
   hydrationUpdatedAtUtc DateTime?
+  glucoseUpdatedAtUtc   DateTime?
 
   // --- Environment ---
   ambientTempC Float?

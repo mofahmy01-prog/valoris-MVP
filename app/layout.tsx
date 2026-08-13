@@ -12,15 +12,12 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">
-        <div
-          role="status"
-          className="sticky top-0 z-50 border-b border-amber-500 bg-amber-500 px-4 py-2 text-center text-sm font-semibold tracking-wide text-black"
-        >
-          SIMULATION MODE — NOT FOR OPERATIONAL USE
-        </div>
-        {children}
-      </body>
+      {/*
+        The simulation banner lives inside each page rather than here, so the
+        demo can render it as part of its own full-height layout without a
+        second bar stacking on top.
+      */}
+      <body className="min-h-screen antialiased">{children}</body>
     </html>
   );
 }

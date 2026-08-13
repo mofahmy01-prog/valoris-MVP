@@ -49,6 +49,21 @@ export type FirefighterSnapshot = {
     spo2BaselinePct: number;
   };
   latestObservationAtUtc: string | null;
+  /** Raw readings from the latest observation, for display only. */
+  latest: {
+    lat: number;
+    lng: number;
+    hrBpm: number | null;
+    spo2Pct: number | null;
+    scbaPressurePct: number | null;
+    timeOnTaskMin: number;
+    coPpm: number | null;
+    pm25UgM3: number | null;
+    pm25RawUgM3: number | null;
+    ambientTempC: number | null;
+    glucoseMmolL: number | null;
+    distanceToFireFrontM: number | null;
+  } | null;
   risk: RiskAssessment | null;
   /**
    * What the physiology models produced for this tick. `coreTempC` and
@@ -163,6 +178,7 @@ export async function buildIncidentSnapshot(
       firefighters.push({
         ...base,
         latestObservationAtUtc: null,
+        latest: null,
         risk: null,
         physiology: null,
         reason:
@@ -181,6 +197,20 @@ export async function buildIncidentSnapshot(
     firefighters.push({
       ...base,
       latestObservationAtUtc: latest.recordedAtUtc.toISOString(),
+      latest: {
+        lat: latest.lat,
+        lng: latest.lng,
+        hrBpm: latest.hrBpm,
+        spo2Pct: latest.spo2Pct,
+        scbaPressurePct: latest.scbaPressurePct,
+        timeOnTaskMin: latest.timeOnTaskMin,
+        coPpm: latest.coPpm,
+        pm25UgM3: latest.pm25UgM3,
+        pm25RawUgM3: latest.pm25RawUgM3,
+        ambientTempC: latest.ambientTempC,
+        glucoseMmolL: latest.glucoseMmolL,
+        distanceToFireFrontM: latest.distanceToFireFrontM,
+      },
       physiology: {
         coreTempC: latest.derivedCoreTempC,
         coreTempIsModelled: latest.derivedCoreTempC !== null,

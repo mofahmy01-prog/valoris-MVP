@@ -79,6 +79,12 @@ export const observationSchema = z
         fatiguePct: channelSchema.optional(),
         hydrationPct: channelSchema.optional(),
         fallDetected: z.boolean().default(false),
+        /**
+         * Lag-corrected blood glucose, mmol/L — never mg/dL. Consumed only for a
+         * firefighter flagged `glucoseMonitored`. Supply the value the CGM
+         * pipeline judged usable, and null when latency makes it unusable.
+         */
+        glucoseMmolL: channelSchema.optional(),
       })
       .strict(),
 
