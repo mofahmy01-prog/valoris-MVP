@@ -47,6 +47,9 @@ export async function GET(
     dataQualityNote: string;
     modelVersion: string;
     configHash: string;
+    profileSnapshotJson: string;
+    riskConfigValuesJson: string;
+    physiologyConfigValuesJson: string;
     deployment: { firefighter: { callsign: string } };
   }) => ({
     id: r.id,
@@ -75,6 +78,16 @@ export async function GET(
     },
     modelVersion: r.modelVersion,
     configHash: r.configHash,
+    /**
+     * Immutable snapshots of everything needed to re-run this exact assessment.
+     * The live profile and config may since have changed; these have not.
+     */
+    reproducibility: {
+      profileSnapshot: JSON.parse(r.profileSnapshotJson) as unknown,
+      riskConfigValues: JSON.parse(r.riskConfigValuesJson) as unknown,
+      physiologyConfigValues: JSON.parse(r.physiologyConfigValuesJson) as unknown,
+      note: "Profiles are mutable. These snapshots are what the engine actually scored, not what the profile says now.",
+    },
   });
 
   if (latestOnly) {

@@ -17,6 +17,7 @@ import { appendAuditEvent } from "@/lib/db/audit";
 import { notFound, ok, parseJsonBody } from "@/lib/api/respond";
 import { postObservationsSchema } from "@/lib/api/schemas";
 import { distanceToPerimeterM } from "@/lib/fire/geometry";
+import { parameterValues } from "@/lib/params/parameters";
 import { DEFAULT_PHYSIOLOGY_CONFIG } from "@/lib/physiology/default-config";
 import { DEFAULT_RISK_CONFIG } from "@/lib/risk/default-config";
 import { assessRisk } from "@/lib/risk/engine";
@@ -376,8 +377,12 @@ export async function POST(
       .map((row) => row.spo2Pct)
       .filter((v): v is number => v !== null);
 
+    // The exact profile scored against, captured before the assessment so the
+    // stored snapshot and the scored value cannot diverge.
+    const scoredProfile = toHealthProfile(deployment.firefighter);
+
     const assessment = assessRisk(
-      toHealthProfile(deployment.firefighter),
+      scoredProfile,
       toVitals(observation, recentSpo2Pct),
       toEnvironment(observation),
       toPosition(observation),
@@ -408,6 +413,13 @@ export async function POST(
         dataQualityNote: assessment.dataQuality.note,
         modelVersion: assessment.modelVersion,
         configHash: assessment.configHash,
+        profileSnapshotJson: JSON.stringify(scoredProfile),
+        riskConfigValuesJson: JSON.stringify(
+          parameterValues(DEFAULT_RISK_CONFIG.parameters),
+        ),
+        physiologyConfigValuesJson: JSON.stringify(
+          parameterValues(DEFAULT_PHYSIOLOGY_CONFIG.parameters),
+        ),
       },
     });
 

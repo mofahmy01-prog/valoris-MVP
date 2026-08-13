@@ -68,6 +68,67 @@ citations have not been obtained.
 | 4 | PurpleAir | API key | | | **Not started** |
 | 5 | Cloud provider (TBD) | Business Associate Agreement scope | | | **Not started.** See `docs/PILOT_READINESS_CHECKLIST.md`. |
 
+## 0. BLOCKING ITEMS
+
+These block further work in the areas they touch. Both are numbers taken on trust
+that currently look cited and are not.
+
+### Blocking item 1 — verify the Kalman core-temperature coefficients
+
+**Assigned to: Ismail** (institutional access required — this cannot be done from
+the engineering side).
+
+> Buller MJ, Tharion WJ, Cheuvront SN, et al. **Estimation of human core
+> temperature from sequential heart rate observations.** *Physiological
+> Measurement* 2013;**34**(7):781–98.
+
+Seven parameter values in `config/physiology-default.json` were transcribed from
+memory and have never been checked against this paper. They drive **every core
+temperature estimate in the system**, and through it fatigue accumulation, the
+heat-strain duration limit and the core-temperature hard override.
+
+| Parameter | Shipped value | Confirmed? |
+|---|---|---|
+| `kalman_initial_core_temp_c` | 37.1 | ☐ |
+| `kalman_initial_variance_c2` | 0 | ☐ |
+| `kalman_variance_growth_c2_per_min` | 0.000484 | ☐ |
+| `kalman_observation_variance_bpm2` | 18.88 | ☐ |
+| `kalman_hr_intercept_b0` | −7887.1 | ☐ |
+| `kalman_hr_linear_b1` | 384.4286 | ☐ |
+| `kalman_hr_quadratic_b2` | −4.5714 | ☐ |
+
+**This is a worse position than the invented model it replaced**, because it looks
+cited and is not. An invented number is obviously invented; a wrong number wearing
+a citation is not.
+
+Also confirm while reading: the paper's validation population and conditions, and
+whether the authors state any limit on applicability. Nothing in the published
+work is firefighter-in-PPE validated.
+
+Surfaced on screen in the model assumptions panel and in `GET /api/health`, not
+only here.
+
+### Blocking item 2 — read the PurpleAir correction paper before trusting 3d
+
+**Assigned to: Ismail or engineering — whoever gets access first.**
+
+> Barkjohn KK, Holder AL, Frederick SG, Clements AL. **Correction and Accuracy of
+> PurpleAir PM2.5 Measurements for Extreme Wildfire Smoke.** *Sensors* 2022;**22**,
+> 9669. With corrigendum *Sensors* 2024;**24**, 7871.
+
+The PM2.5 correction implemented in Milestone 3d follows the structure described
+in the Sensor Integration Spec — a US-wide multi-linear correction using relative
+humidity below 300 µg/m³, a blended transition to 400, and a quadratic fit above
+that. **The coefficient values carry the same UNVERIFIED discipline as the Kalman
+coefficients**: the structure is published, the specific numbers in the shipped
+config have not been checked against the paper.
+
+Consequence if wrong: PM2.5 feeds the environmental subscore and, for a
+firefighter with declared respiratory risk, the thresholds that fire earliest.
+A wrong correction moves every asthma-related alert in the system.
+
+---
+
 ## 5. Verification of cited literature
 
 Every reference in `docs/CLINICAL_ASSUMPTIONS.md` carries a verification status.

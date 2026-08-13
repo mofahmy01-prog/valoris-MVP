@@ -12,6 +12,8 @@
 
 export {}; // module scope, so top-level names do not collide with sibling scripts
 
+import { preflight, reportPreflight } from "./preflight";
+
 const BASE = process.env["VALORIS_BASE_URL"] ?? "http://localhost:3000";
 const CALLSIGNS = ["ALPHA-1", "ALPHA-2", "BRAVO-1", "BRAVO-2", "CHARLIE-1", "CHARLIE-2"];
 const TICKS = 6;
@@ -93,6 +95,8 @@ async function main(): Promise<void> {
   console.log("VALORIS MILESTONE 3B VERIFICATION — physiology wired into the pipeline");
   console.log(`base ${BASE}`);
   rule();
+
+  reportPreflight(await preflight(BASE));
 
   const created = await req("POST", "/api/incidents", {
     name: "3b physiology pipeline",

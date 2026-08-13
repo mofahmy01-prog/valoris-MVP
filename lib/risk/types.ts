@@ -168,4 +168,10 @@ export type RiskParameter = {
   min: number;
   max: number;
   editable: boolean;
+  /**
+   * Reference into the numbered list in docs/CLINICAL_ASSUMPTIONS.md, e.g.
+   * "ref [2]". Mandatory when `sourceStatus` is `literature_derived` or
+   * `validated` — enforced by the shared loader in lib/params.
+   */
+  citation?: string;
 };

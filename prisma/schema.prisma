@@ -270,6 +270,22 @@ model RiskAssessmentRecord {
   modelVersion String
   configHash   String
 
+  /// IMMUTABLE SNAPSHOT of the exact HealthProfile the engine scored against.
+  ///
+  /// FirefighterProfile is mutable (`updatedAtUtc @updatedAt`, and the seed
+  /// upserts in place). Without this, editing a firefighter's age, fitness,
+  /// declared conditions or cumulative exposure indices retroactively destroys
+  /// the reconstructability of every past assessment for that person — and the
+  /// profile is precisely what makes the score personalised, so an
+  /// unreproducible profile means an unreproducible score.
+  profileSnapshotJson String @default("{}")
+
+  /// IMMUTABLE SNAPSHOT of the parameter name-to-value maps actually used.
+  /// `configHash` detects drift but cannot reverse it: nothing in the database
+  /// mapped a hash back to the values behind it. These do.
+  riskConfigValuesJson       String @default("{}")
+  physiologyConfigValuesJson String @default("{}")
+
   incident        Incident         @relation(fields: [incidentId], references: [id])
   deployment      Deployment       @relation(fields: [deploymentId], references: [id])
   observation     Observation      @relation(fields: [observationId], references: [id])

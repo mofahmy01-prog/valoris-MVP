@@ -357,6 +357,151 @@ Logged rather than decided, per instruction.
 | 6c | CHARLIE-1: "faster heat accumulation" | Low heat tolerance tightens limits but does not accelerate accumulation | A tighter ceiling and a faster climb are different claims |
 | 7 | Fatigue is a function of time on task, metabolic rate, heat storage, previous shift hours, **and hydration** | Hydration is not an input | `hydrationPct` is captured, tracked for staleness, and unused |
 
+### 21. The core temperature estimator is environment-blind — should the composite compensate?
+
+**Status: `illustrative` / `unreviewed`. Single question for review.**
+
+Switching to the published sequential Kalman estimator (item 20, reference [2])
+made the model **markedly less alarming** under identical inputs, and made core
+temperature **blind to ambient conditions**.
+
+Measured, same demo inputs both times — HR 148 bpm, ambient 42 °C, 55% humidity,
+in PPE, six ticks five minutes apart:
+
+| | Previous invented blend | Published Kalman estimator |
+|---|---|---|
+| ALPHA-1 final core temp | 39.45 °C | **38.43 °C** |
+| BRAVO-2 final core temp | 39.90 °C | **38.43 °C** |
+| Firefighters ending `CRITICAL` | 5 of 6 | **0 of 6** |
+
+Two distinct effects:
+
+1. **Less alarming.** The filter converges toward the core temperature implied by
+   the observed heart rate and settles there, rather than integrating heat storage
+   upward without limit. Nobody reaches the core-temperature override.
+2. **Environment-blind.** The published model takes heart rate and nothing else.
+   **148 bpm produces the same estimate at 20 °C as at 60 °C.** For wildfire work,
+   where radiant load and encapsulating PPE are the dominant thermal stressors,
+   that is a significant blind spot.
+
+**The signal has not been lost — it has moved.** The reduced ISO 7933 heat balance
+still runs, still sees ambient temperature, humidity, radiant load, air velocity
+and clothing, and is still personalised by heat tolerance. It reports heat storage
+(W/m²), predicted sweat rate, and an allowable exposure duration. At present those
+outputs are *displayed* but carry **no weight in the composite risk score** — the
+score's thermal input is the core temperature estimate, which no longer sees any
+of it.
+
+**The question for review, as one question:**
+
+> Given that core temperature is now heart-rate-only and environment-blind, should
+> the risk engine weight heat storage and allowable exposure duration more heavily
+> to compensate?
+
+Supporting detail for whoever answers it:
+
+- Heat storage and `dlimMin` are already computed per firefighter, personalised,
+  and available to the engine — no new modelling is required, only a weighting
+  decision.
+- The alternative is to accept a less alarming model on the grounds that the
+  previous one was invented and alarmism is not accuracy.
+- A third possibility: keep the composite as it is and let allowable duration
+  drive a separate `rotate` recommendation rather than the score.
+
+**Engineering has not reweighted anything and will not.** Composite weights are
+`weight_physiological` 0.40, `weight_environmental` 0.30, `weight_proximity` 0.20,
+`weight_profile` 0.10, all `illustrative`, all unchanged.
+
+### 22. Outcome capture — outcomes are interventional, not observational
+
+**Status: design constraint. Must be settled before a pilot, not after.**
+
+Once Valoris is advising a commander, **the recommendation changes the outcome it
+would be evaluated against.** A firefighter withdrawn on a `CRITICAL` band who then
+suffers nothing is not evidence the band was wrong — it may be evidence the
+withdrawal worked.
+
+Any use of the observation log as training or calibration data must therefore:
+
+1. **Record whether the recommendation was acted on.** `CommanderAction` already
+   captures acknowledge / accept / reject / override with a mandatory reason, so
+   the information exists; it must be joined to the outcome, not ignored.
+2. **Treat accepted recommendations as censored observations**, in the survival-
+   analysis sense: the event was prevented from occurring, not observed not to
+   occur.
+3. **Never train on the naive pairing of (inputs → outcome).** Doing so teaches
+   the model that `CRITICAL` bands are followed by nothing happening, and the
+   model learns to under-alert. This failure is invisible in aggregate accuracy
+   and lethal in effect.
+
+Rejected and overridden recommendations are the most informative rows in the
+dataset, because those are the cases where the model's advice was *not* followed
+and the outcome was observed. They will also be rare.
+
+**Question for review:** is a commander-facing system that changes its own outcome
+distribution evaluable at all from observational pilot data, or does establishing
+sensitivity require a design where some recommendations are deliberately withheld?
+That is an ethical question as much as a statistical one, and it is not
+engineering's to answer.
+
+### 23. Outcome capture — the false-alarm budget
+
+**Status: BLOCKING for any calibration claim. Requires a number from Ismail.**
+
+Most firefighters on most incidents experience nothing. Against that base rate a
+model that predicts "nothing" always will score extremely well on accuracy, and be
+worthless.
+
+Valoris therefore cannot be evaluated on accuracy, and cannot be tuned at all
+until someone states the operating point:
+
+> **At what false-alarm rate is a given sensitivity worth having?**
+
+Concretely, the number needed is something of the form: *"I will accept N
+unnecessary `CRITICAL` alerts per 100 firefighter-shifts in order to catch X% of
+genuine heat-illness events."*
+
+Why this cannot be an engineering decision:
+
+- It trades a real operational cost — crews stood down unnecessarily, commander
+  trust eroded, alerts ignored — against a real clinical harm.
+- Alert fatigue is itself a safety failure. A model that cries wolf gets muted,
+  and a muted model has sensitivity zero.
+- The right answer almost certainly differs by band. A false `CAUTION` costs
+  little; a false `CRITICAL` costs a lot.
+
+Until that number exists, every band cut-off in `config/risk-default.json`
+(25 / 50 / 75) remains an invented placeholder, and no statement about the model's
+sensitivity or specificity may be made to anyone.
+
+### 24. Threshold divergences in the safety review prompt
+
+`PROMPT_2_CLAUDE_REVIEW.md` lists hard overrides that differ from the ones built
+from the main build prompt. Logged, not reconciled — these are threshold decisions.
+
+| Override | Main build prompt / implemented | Review prompt |
+|---|---|---|
+| SpO₂ | 88% baseline, personalised upward by respiratory risk | "< 88" |
+| Core temperature | **39.5 °C**, personalised by heat tolerance | "**≥ 40 °C**" |
+| Heart rate | ≥ 97% of age-adjusted max | same |
+| Fall detected | yes | same |
+| Escape route | blocked **and** fire front within 150 m | "exit blocked + high fire load" |
+| **CO concentration** | **no CO override exists** | "**CO > 80 ppm**" |
+| SCBA pressure | ≤ 20% | not listed |
+| Manual mayday | yes | not listed |
+
+Two of these matter:
+
+- **There is no CO hard override at all.** CO currently contributes only through
+  the environmental subscore, attenuated by SCBA. A direct CO override at a stated
+  concentration is a different and stricter safety behaviour, and the review prompt
+  assumes one exists.
+- **Core temperature override is 39.5 °C, not 40 °C.** The implemented value is
+  stricter, so this is the safe direction, but the two documents disagree.
+
+**Needs review:** which set is authoritative, whether a CO override should exist
+and at what concentration, and whether it should be gated by SCBA status.
+
 ## References
 
 Every citation below is recorded so that a `literature_derived` claim can be
@@ -410,6 +555,11 @@ No item below may be ticked by an engineer.
 | 21 | Turnout gear insulation 1.8 clo vs the specified 2.0–2.5 clo | | | |
 | 22 | Condition-specific threshold shifts (hypertension HR, asthma PM2.5) | | | |
 | 23 | Hydration as a fatigue input | | | |
+| 24 | Environment-blind core temperature — should heat storage carry more weight? | | | |
+| 25 | Outcomes are interventional; censoring and study design | | | |
+| 26 | **False-alarm budget — blocking for any calibration claim** | | | |
+| 27 | CO hard override — should one exist, and at what concentration? | | | |
+| 28 | Core temperature override 39.5 °C vs 40 °C — which document is authoritative? | | | |
 
 Reviewer name, registration number and date are required for each row. Until
 every row is complete, all parameters remain `illustrative` / `unreviewed` and

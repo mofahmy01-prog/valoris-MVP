@@ -8,6 +8,8 @@
 
 export {}; // module scope, so top-level names do not collide with sibling scripts
 
+import { preflight, reportPreflight } from "./preflight";
+
 const BASE = process.env["VALORIS_BASE_URL"] ?? "http://localhost:3000";
 
 let failures = 0;
@@ -58,6 +60,9 @@ async function main(): Promise<void> {
   console.log("VALORIS MILESTONE 2 VERIFICATION");
   console.log(`base ${BASE}`);
   rule();
+
+  // Refuse to verify a stale server before asserting anything at all.
+  reportPreflight(await preflight(BASE));
 
   /* ---------------------------------------------------------------------- */
   // Guard integrity comes FIRST and is read-only. If a migration has dropped a

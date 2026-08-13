@@ -116,6 +116,23 @@ export function computeParametersHash(
   return `${hex8(fnv1a32(payload, 0x811c9dc5))}${hex8(fnv1a32(payload, 0x01000193))}`;
 }
 
+/**
+ * The parameter name-to-value map — everything that actually changes behaviour.
+ *
+ * Stored alongside each assessment so a historical score can be reproduced. A
+ * hash proves two configs differ; only the values let you re-run the old one.
+ */
+export function parameterValues(
+  parameters: Record<string, ConfigParameter>,
+): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const key of Object.keys(parameters).sort()) {
+    const p = parameters[key];
+    if (p !== undefined) values[key] = p.value;
+  }
+  return values;
+}
+
 export function failConfig(context: string, message: string): never {
   throw new Error(`Invalid ${context}: ${message}`);
 }
