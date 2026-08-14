@@ -6,6 +6,7 @@ import { ComparePanel } from "./ComparePanel";
 import { CrewPanel } from "./CrewPanel";
 import { DetailPanel } from "./DetailPanel";
 import { IncidentMap } from "./IncidentMap";
+import { InputsPanel } from "./InputsPanel";
 import { BAND_COLOUR, COLOURS } from "./theme";
 import type { SimStatus, Snapshot } from "./types";
 
@@ -84,8 +85,10 @@ export function DemoClient() {
   });
 
   return (
+    // min-h-screen, not h-screen: on a short window the page scrolls rather
+    // than clipping the controls off the bottom.
     <div
-      className="flex h-screen flex-col"
+      className="flex min-h-screen flex-col"
       style={{ background: COLOURS.background, color: COLOURS.text }}
     >
       {/* Simulation banner */}
@@ -107,14 +110,19 @@ export function DemoClient() {
         </div>
       )}
 
+      {/* Live inputs — what is going INTO the engine */}
+      <div style={{ borderBottom: `1px solid ${COLOURS.border}`, background: COLOURS.panel }}>
+        <InputsPanel snapshot={snapshot} status={status} />
+      </div>
+
       {/* Main */}
-      <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-[3] p-2">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <div className="min-h-[420px] min-w-0 flex-[3] p-2 lg:min-h-0">
           <IncidentMap snapshot={snapshot} selected={selected} onSelect={setSelected} />
         </div>
 
         <div
-          className="flex min-h-0 flex-[2] flex-col"
+          className="flex min-h-[420px] min-w-[340px] flex-[2] flex-col lg:min-h-0"
           style={{ borderLeft: `1px solid ${COLOURS.border}` }}
         >
           <div className="flex gap-1 p-2" style={{ borderBottom: `1px solid ${COLOURS.border}` }}>
@@ -143,7 +151,7 @@ export function DemoClient() {
         </div>
 
         {selectedFirefighter !== null && view === "crew" && (
-          <div className="w-[380px] shrink-0">
+          <div className="min-h-[420px] w-full shrink-0 lg:min-h-0 lg:w-[380px]">
             <DetailPanel
               firefighter={selectedFirefighter}
               onClose={() => setSelected(null)}

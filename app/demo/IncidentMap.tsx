@@ -1,33 +1,40 @@
 "use client";
 
 /**
- * Abstract operational map — SVG on a dark ground.
+ * Real map. MapLibre GL over a dark raster basemap, centred on Pacific
+ * Palisades — actual streets and coastline, pan and zoom.
  *
- * Deliberately not MapLibre. A basemap needs a network round trip, and a live
- * demo that depends on tiles loading is a demo with an extra way to fail. The
- * geometry here is the real geometry: crew positions and the fire perimeter come
- * straight from the snapshot, projected locally to metres.
+ * Basemap tiles come from CARTO's public dark style: no API key, attribution
+ * required and rendered. If tiles fail to load the map degrades gracefully —
+ * the dark background, the fire polygon and the crew markers all still render,
+ * because those are drawn from our own data, not from the tile server.
  */
+
+import maplibregl from "maplibre-gl";
+import { useEffect, useRef } from "react";
 
 import { asBand, BAND_COLOUR, COLOURS, presentation } from "./theme";
 import type { Snapshot } from "./types";
 
-const VIEW = 1000;
-/** Half-width of the view, in metres. */
-const HALF_SPAN_M = 1600;
+const PALISADES = { lat: 34.0459, lng: -118.5426 };
 
-function project(
-  lat: number,
-  lng: number,
-  centreLat: number,
-  centreLng: number,
-): { x: number; y: number } {
-  const EARTH_RADIUS_M = 6_371_008.8;
-  const latRad = (centreLat * Math.PI) / 180;
-  const eastM = ((lng - centreLng) * Math.PI / 180) * Math.cos(latRad) * EARTH_RADIUS_M;
-  const northM = ((lat - centreLat) * Math.PI / 180) * EARTH_RADIUS_M;
-  const scale = VIEW / (HALF_SPAN_M * 2);
-  return { x: VIEW / 2 + eastM * scale, y: VIEW / 2 - northM * scale };
+/** Safe zone / muster point, north-west of the incident. */
+const SAFE_ZONE = { lat: 34.0522, lng: -118.5524, radiusM: 260 };
+
+function circlePolygon(
+  centre: { lat: number; lng: number },
+  radiusM: number,
+  points = 64,
+): number[][] {
+  const coords: number[][] = [];
+  const latRad = (centre.lat * Math.PI) / 180;
+  for (let i = 0; i <= points; i += 1) {
+    const angle = (i / points) * Math.PI * 2;
+    const dx = (radiusM * Math.cos(angle)) / (111_320 * Math.cos(latRad));
+    const dy = (radiusM * Math.sin(angle)) / 110_540;
+    coords.push([centre.lng + dx, centre.lat + dy]);
+  }
+  return coords;
 }
 
 export function IncidentMap({
@@ -39,148 +46,184 @@ export function IncidentMap({
   selected: string | null;
   onSelect: (callsign: string) => void;
 }) {
-  const centreLat = snapshot?.incident.centroidLat ?? 34.0459;
-  const centreLng = snapshot?.incident.centroidLng ?? -118.5426;
-  const perimeter = snapshot?.fireFront.perimeter ?? [];
+  const container = useRef<HTMLDivElement | null>(null);
+  const map = useRef<maplibregl.Map | null>(null);
+  const markers = useRef<Record<string, maplibregl.Marker>>({});
+  const ready = useRef(false);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
-  const firePoints = perimeter
-    .map((p) => {
-      const { x, y } = project(p.lat, p.lng, centreLat, centreLng);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+  /* --- Create the map once ---------------------------------------------- */
+  useEffect(() => {
+    if (container.current === null || map.current !== null) return;
 
-  // Safe zone: fixed muster point north-west of the incident centre.
-  const safeZone = project(
-    centreLat + 0.0063,
-    centreLng - 0.0098,
-    centreLat,
-    centreLng,
-  );
+    const m = new maplibregl.Map({
+      container: container.current,
+      style: {
+        version: 8,
+        sources: {
+          carto: {
+            type: "raster",
+            tiles: [
+              "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+              "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+              "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+            ],
+            tileSize: 256,
+            attribution: "© OpenStreetMap contributors © CARTO",
+          },
+        },
+        layers: [
+          { id: "bg", type: "background", paint: { "background-color": COLOURS.background } },
+          { id: "carto", type: "raster", source: "carto", paint: { "raster-opacity": 0.85 } },
+        ],
+      },
+      center: [PALISADES.lng, PALISADES.lat],
+      zoom: 13.2,
+      attributionControl: false,
+    });
+
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.addControl(
+      new maplibregl.AttributionControl({ compact: true }),
+      "bottom-right",
+    );
+    m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+
+    m.on("load", () => {
+      // Safe zone
+      m.addSource("safe-zone", {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Polygon", coordinates: [circlePolygon(SAFE_ZONE, SAFE_ZONE.radiusM)] },
+        },
+      });
+      m.addLayer({
+        id: "safe-zone-fill",
+        type: "fill",
+        source: "safe-zone",
+        paint: { "fill-color": BAND_COLOUR.SAFE, "fill-opacity": 0.1 },
+      });
+      m.addLayer({
+        id: "safe-zone-line",
+        type: "line",
+        source: "safe-zone",
+        paint: {
+          "line-color": BAND_COLOUR.SAFE,
+          "line-width": 2,
+          "line-dasharray": [3, 2],
+        },
+      });
+
+      // Fire front — filled, plus a bright leading edge
+      m.addSource("fire-front", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: "fire-fill",
+        type: "fill",
+        source: "fire-front",
+        paint: { "fill-color": "#CC1020", "fill-opacity": 0.35 },
+      });
+      m.addLayer({
+        id: "fire-edge",
+        type: "line",
+        source: "fire-front",
+        paint: { "line-color": "#FF6A00", "line-width": 3, "line-blur": 1 },
+      });
+
+      ready.current = true;
+    });
+
+    map.current = m;
+    return () => {
+      m.remove();
+      map.current = null;
+      ready.current = false;
+    };
+  }, []);
+
+  /* --- Push fire front and crew on every snapshot ------------------------ */
+  useEffect(() => {
+    const m = map.current;
+    if (m === null || !ready.current || snapshot === null) return;
+
+    const perimeter = snapshot.fireFront.perimeter ?? [];
+    const source = m.getSource("fire-front") as maplibregl.GeoJSONSource | undefined;
+    const first = perimeter[0];
+    if (source !== undefined) {
+      source.setData(
+        perimeter.length >= 3 && first !== undefined
+          ? {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Polygon",
+                // GeoJSON rings must close, so repeat the first point.
+                coordinates: [
+                  [...perimeter.map((p) => [p.lng, p.lat]), [first.lng, first.lat]],
+                ],
+              },
+            }
+          : { type: "FeatureCollection", features: [] },
+      );
+    }
+
+    for (const f of snapshot.firefighters) {
+      if (f.latest === null) continue;
+      const band = asBand(f.risk?.band);
+      const p = presentation(band, f.risk?.dataQuality.missingInputs);
+      const isSelected = selected === f.callsign;
+
+      let marker = markers.current[f.callsign];
+      if (marker === undefined) {
+        const el = document.createElement("div");
+        el.style.cursor = "pointer";
+        el.addEventListener("click", (e) => {
+          e.stopPropagation();
+          onSelectRef.current(f.callsign);
+        });
+        marker = new maplibregl.Marker({ element: el }).setLngLat([f.latest.lng, f.latest.lat]).addTo(m);
+        markers.current[f.callsign] = marker;
+      }
+
+      marker.setLngLat([f.latest.lng, f.latest.lat]);
+      const el = marker.getElement();
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:6px;transform:translate(-50%,-50%)">
+          <div style="
+            width:${isSelected ? 34 : 28}px;height:${isSelected ? 34 : 28}px;border-radius:50%;
+            background:${p.greyed ? "rgba(122,130,174,0.35)" : p.colour};
+            border:${isSelected ? 4 : 3}px ${p.greyed ? "dashed" : "solid"} ${isSelected ? "#E8ECF8" : p.colour};
+            display:flex;align-items:center;justify-content:center;
+            font:700 ${isSelected ? 17 : 14}px ui-monospace,monospace;
+            color:${p.greyed ? "#E8ECF8" : "#05060F"};
+            box-shadow:0 0 ${p.greyed ? 0 : 14}px ${p.colour};
+          ">${p.glyph}</div>
+          <div style="
+            background:rgba(5,6,15,0.82);padding:2px 6px;border-radius:3px;
+            border-left:3px solid ${p.colour};
+            font:700 12px ui-monospace,monospace;color:#E8ECF8;white-space:nowrap;
+          ">${f.callsign}${p.badge === null ? "" : ` <span style="color:${BAND_COLOUR.UNKNOWN}">${p.badge}</span>`}</div>
+        </div>`;
+    }
+  }, [snapshot, selected]);
 
   return (
-    <div
-      className="relative h-full w-full overflow-hidden rounded"
-      style={{ background: COLOURS.background, border: `1px solid ${COLOURS.border}` }}
-    >
-      <svg viewBox={`0 0 ${VIEW} ${VIEW}`} className="h-full w-full">
-        <defs>
-          <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
-            <path
-              d="M 50 0 L 0 0 0 50"
-              fill="none"
-              stroke={COLOURS.border}
-              strokeWidth="1"
-              opacity="0.5"
-            />
-          </pattern>
-        </defs>
-        <rect width={VIEW} height={VIEW} fill="url(#grid)" />
-
-        {/* Fire perimeter */}
-        {firePoints !== "" && (
-          <polygon
-            points={firePoints}
-            fill="#CC1020"
-            fillOpacity="0.28"
-            stroke="#F05A00"
-            strokeWidth="2.5"
-          />
-        )}
-
-        {/* Safe zone */}
-        <g>
-          <circle
-            cx={safeZone.x}
-            cy={safeZone.y}
-            r="58"
-            fill="none"
-            stroke="#00C878"
-            strokeWidth="2.5"
-            strokeDasharray="8 6"
-          />
-          <text
-            x={safeZone.x}
-            y={safeZone.y + 4}
-            textAnchor="middle"
-            fontSize="17"
-            fill="#00C878"
-            fontFamily="ui-monospace, monospace"
-          >
-            SAFE ZONE
-          </text>
-        </g>
-
-        {/* Crew */}
-        {(snapshot?.firefighters ?? []).map((f) => {
-          const band = asBand(f.risk?.band);
-          const p = presentation(band, f.risk?.dataQuality.missingInputs);
-          const dataLost = p.greyed;
-          const colour = p.colour;
-          if (f.latest === null) return null;
-          const marker = project(f.latest.lat, f.latest.lng, centreLat, centreLng);
-          const isSelected = selected === f.callsign;
-          return (
-            <g
-              key={f.callsign}
-              onClick={() => onSelect(f.callsign)}
-              style={{ cursor: "pointer" }}
-            >
-              {isSelected && (
-                <circle cx={marker.x} cy={marker.y} r="30" fill="none" stroke={COLOURS.text} strokeWidth="2" />
-              )}
-              <circle
-                cx={marker.x}
-                cy={marker.y}
-                r="19"
-                fill={colour}
-                fillOpacity={dataLost ? 0.3 : 0.95}
-                stroke={colour}
-                strokeWidth="3"
-                strokeDasharray={dataLost ? "5 4" : undefined}
-              />
-              <text
-                x={marker.x}
-                y={marker.y + 7}
-                textAnchor="middle"
-                fontSize="20"
-                fontWeight="700"
-                fill={dataLost ? COLOURS.text : "#05060F"}
-                fontFamily="ui-monospace, monospace"
-              >
-                {p.glyph}
-              </text>
-              {p.badge !== null && (
-                <text
-                  x={marker.x + 26}
-                  y={marker.y + 24}
-                  fontSize="14"
-                  fill={BAND_COLOUR.UNKNOWN}
-                  fontFamily="ui-monospace, monospace"
-                >
-                  {p.badge}
-                </text>
-              )}
-              <text
-                x={marker.x + 26}
-                y={marker.y + 6}
-                fontSize="19"
-                fill={COLOURS.text}
-                fontFamily="ui-monospace, monospace"
-              >
-                {f.callsign}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
+    <div className="relative h-full w-full overflow-hidden rounded" style={{ border: `1px solid ${COLOURS.border}` }}>
+      <div ref={container} className="h-full w-full" />
       <div
-        className="absolute bottom-2 left-2 rounded px-2 py-1 text-[11px]"
-        style={{ background: "rgba(5,6,15,0.85)", color: COLOURS.muted }}
+        className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-[11px]"
+        style={{ background: "rgba(5,6,15,0.85)", color: COLOURS.muted, border: `1px solid ${COLOURS.border}` }}
       >
-        {snapshot?.fireFront.providerLabel ?? "no fire front"} · abstract view, not a
-        geographic basemap
+        Pacific Palisades · {snapshot?.fireFront.providerLabel ?? "no fire front"}
+        <br />
+        <span style={{ color: BAND_COLOUR.CAUTION }}>
+          Fire geometry is a placeholder, not a fire behaviour prediction
+        </span>
       </div>
     </div>
   );

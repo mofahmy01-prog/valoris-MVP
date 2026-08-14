@@ -106,6 +106,8 @@ export type SimStatus = {
   tick: number;
   incidentMinutes: number;
   windShiftActive: boolean;
+  windDirDeg?: number;
+  windSpeedMs?: number;
   lastError: string | null;
   killed: Array<{ callsign: string; channels: string[] }>;
 };

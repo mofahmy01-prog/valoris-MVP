@@ -8,6 +8,7 @@
  */
 
 import { prisma } from "@/lib/db/client";
+import { simState } from "@/lib/sim/runtime";
 import { createFireFrontProvider } from "@/lib/fire/registry";
 import type { FireFront, FireFrontProviderKey } from "@/lib/fire/types";
 import { DEFAULT_RISK_CONFIG } from "@/lib/risk/default-config";
@@ -329,6 +330,26 @@ type IncidentRow = {
   startedAtUtc: Date | null;
 };
 
+/**
+ * Elapsed time to hand the fire front provider.
+ *
+ * When the demo simulator is driving this incident, use its incident clock and
+ * shape it exponentially. Otherwise fall back to real elapsed time, so nothing
+ * outside the demo changes behaviour.
+ */
+function simulatedElapsedMsFor(incidentId: string, wallClockElapsedMs: number): number {
+  const sim = simState();
+  if (sim.incidentId !== incidentId) return wallClockElapsedMs;
+
+  const minutes = sim.incidentMinutes;
+  // Accelerating, not runaway. Tuned so the front reaches roughly 600 m at
+  // T+30, 1.2 km at T+60 and 3 km at T+120 — fast enough to be visibly
+  // exponential on screen, slow enough that the crew is overtaken one at a time
+  // instead of all at once. Capped so it stays in frame.
+  const shaped = Math.pow(Math.max(0, minutes), 1.35) / 6;
+  return Math.min(shaped, 300) * 60_000;
+}
+
 export async function resolveFireFront(
   incident: IncidentRow,
   nowMs: number,
@@ -353,6 +374,18 @@ export async function resolveFireFront(
   });
 
   const startedMs = incident.startedAtUtc?.getTime() ?? nowMs;
+
+  // DEMO BRANCH ONLY. The fire front must track SIMULATED incident time, not
+  // wall clock: at 20x speed the crew is forty minutes into the incident after
+  // two minutes in the room, and a front drawn from wall clock would lag far
+  // behind the physiology it is supposed to explain.
+  //
+  // The spread is also shaped exponentially rather than linearly, by feeding
+  // the provider a non-linear elapsed time. The provider itself is untouched —
+  // it remains the same placeholder ellipse, and still reports itself as not a
+  // fire behaviour prediction.
+  const elapsedMs = simulatedElapsedMsFor(incident.id, Math.max(0, atMs - startedMs));
+
   try {
     return await provider.getFireFront({
       atMs,
@@ -360,7 +393,7 @@ export async function resolveFireFront(
       origin: { lat: incident.centroidLat, lng: incident.centroidLng },
       windSpeedMs: windRow?.windSpeedMs ?? null,
       windDirDeg: windRow?.windDirDeg ?? null,
-      elapsedMs: Math.max(0, atMs - startedMs),
+      elapsedMs,
     });
   } catch (error) {
     return {

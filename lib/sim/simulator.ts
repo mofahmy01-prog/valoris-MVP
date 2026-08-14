@@ -74,14 +74,18 @@ export type SimState = {
   lastTickAtMs: number | null;
 };
 
-/** Starting layout: two crews near the front, one further back. */
+/**
+ * Starting layout. Crews stand off from the ignition point so there is an arc
+ * to watch: everyone starts clear, ALPHA is closest and is overtaken first,
+ * CHARLIE holds the furthest sector and stays viable longest.
+ */
 const START_POSITIONS: Record<Callsign, { eastM: number; northM: number }> = {
-  "ALPHA-1": { eastM: -240, northM: 180 },
-  "ALPHA-2": { eastM: -190, northM: 240 },
-  "BRAVO-1": { eastM: 120, northM: 150 },
-  "BRAVO-2": { eastM: 175, northM: 205 },
-  "CHARLIE-1": { eastM: -60, northM: -260 },
-  "CHARLIE-2": { eastM: 10, northM: -300 },
+  "ALPHA-1": { eastM: -620, northM: 430 },
+  "ALPHA-2": { eastM: -540, northM: 560 },
+  "BRAVO-1": { eastM: 780, northM: 300 },
+  "BRAVO-2": { eastM: 860, northM: 470 },
+  "CHARLIE-1": { eastM: -220, northM: -980 },
+  "CHARLIE-2": { eastM: 140, northM: -1080 },
 };
 
 const RESTING_HR: Record<Callsign, number> = {
@@ -147,6 +151,43 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/**
+ * Approximate fire front radius at a given incident minute.
+ *
+ * MUST track the shaping used to draw the perimeter in
+ * lib/incident/snapshot.ts, or the atmosphere the crew reports would disagree
+ * with the fire on the map — CO rising while the polygon is still far away.
+ */
+export function frontRadiusAt(incidentMinutes: number, windShiftActive: boolean): number {
+  const shaped = Math.pow(Math.max(0, incidentMinutes), 1.35) / 6;
+  return 120 + Math.min(shaped, 300) * (windShiftActive ? 14 : 10);
+}
+
+/**
+ * Front radius in a firefighter's direction, allowing for wind.
+ *
+ * The drawn fire is a wind-driven ellipse: it reaches much further downwind
+ * than upwind. A purely radial model would report a crew downwind of the fire
+ * as breathing clean air while the polygon on the map was already on top of
+ * them. The atmosphere has to agree with the picture.
+ */
+export function frontRadiusToward(
+  eastM: number,
+  northM: number,
+  incidentMinutes: number,
+  windShiftActive: boolean,
+  windDirDeg: number,
+): number {
+  const base = frontRadiusAt(incidentMinutes, windShiftActive);
+  // Wind direction is where it blows FROM, so the head runs 180° opposite.
+  const headBearingRad = (((windDirDeg + 180) % 360) * Math.PI) / 180;
+  // Bearing of the firefighter from the ignition point, clockwise from north.
+  const bearingRad = Math.atan2(eastM, northM);
+  const alignment = Math.cos(bearingRad - headBearingRad); // 1 downwind, −1 upwind
+  // Head reaches ~2.2x the flank; the back barely moves.
+  return base * (1 + 0.6 * alignment + 0.15 * alignment * alignment);
+}
+
 /** Metres from the incident centre, where the fire front is seeded. */
 function distanceToCentreM(f: FirefighterSimState): number {
   return Math.hypot(f.eastM, f.northM);
@@ -163,26 +204,34 @@ export function advance(state: SimState): SimState {
 
   // The fire grows outward from the centre over time; wind shift accelerates it
   // and pushes it toward the ALPHA crew.
-  const frontRadiusM =
-    120 + incidentMinutes * (state.windShiftActive ? 26 : 11);
-
   const firefighters = {} as Record<Callsign, FirefighterSimState>;
 
   for (const callsign of CALLSIGNS) {
     const prev = state.firefighters[callsign];
     const seed = tick * 7 + callsign.length * 13 + callsign.charCodeAt(0);
 
-    // Crews work slowly toward the fire; ALPHA is closest and gets overtaken
-    // first when the wind shifts.
-    const drift = state.windShiftActive && callsign.startsWith("ALPHA") ? 6 : 2.5;
-    const towardCentre = distanceToCentreM(prev) > 90 ? -drift : 0;
+    // Crews hold their assigned sectors and work the line. They do not walk
+    // into the fire — the FIRE advances on THEM, which is the story the map has
+    // to tell. Small drift only, so markers are alive rather than frozen.
+    const drift = state.windShiftActive && callsign.startsWith("ALPHA") ? 1.5 : 0.6;
+    const towardCentre = distanceToCentreM(prev) > 260 ? -drift : 0;
     const angle = Math.atan2(prev.northM, prev.eastM);
-    const eastM = prev.eastM + Math.cos(angle) * towardCentre + wobble(seed, 4);
-    const northM = prev.northM + Math.sin(angle) * towardCentre + wobble(seed + 1, 4);
+    const eastM = prev.eastM + Math.cos(angle) * towardCentre + wobble(seed, 5);
+    const northM = prev.northM + Math.sin(angle) * towardCentre + wobble(seed + 1, 5);
 
     const distanceM = Math.hypot(eastM, northM);
-    // Separation from the fire front, for the atmosphere model below.
-    const separationM = Math.max(0, distanceM - frontRadiusM);
+    // Separation from the fire front in this firefighter's direction.
+    const separationM = Math.max(
+      0,
+      distanceM -
+        frontRadiusToward(
+          eastM,
+          northM,
+          incidentMinutes,
+          state.windShiftActive,
+          state.windDirDeg,
+        ),
+    );
     const proximity = clamp(1 - separationM / 500, 0, 1);
 
     const timeOnTaskMin = prev.timeOnTaskMin + 1;
@@ -254,8 +303,13 @@ export function atmosphereFor(
   state: SimState,
   f: FirefighterSimState,
 ): { coPpm: number; pm25UgM3: number; ambientTempC: number; humidityPct: number } {
-  const frontRadiusM =
-    120 + state.incidentMinutes * (state.windShiftActive ? 26 : 11);
+  const frontRadiusM = frontRadiusToward(
+    f.eastM,
+    f.northM,
+    state.incidentMinutes,
+    state.windShiftActive,
+    state.windDirDeg,
+  );
   const separationM = Math.max(0, Math.hypot(f.eastM, f.northM) - frontRadiusM);
   const proximity = clamp(1 - separationM / 500, 0, 1);
   return {
