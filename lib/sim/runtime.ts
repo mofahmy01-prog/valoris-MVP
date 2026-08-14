@@ -206,10 +206,10 @@ export async function simStart(baseUrl: string): Promise<SimState> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: "Live demonstration incident",
-        scenarioKey: "baseline_wildfire",
-        centroidLat: 34.0459,
-        centroidLng: -118.5426,
+        name: "Palisades Fire 2025 — simulated deployment",
+        scenarioKey: "palisades_replay",
+        centroidLat: 34.0725,
+        centroidLng: -118.5425,
       }),
     });
     if (!created.ok) {

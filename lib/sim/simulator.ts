@@ -39,7 +39,12 @@ export const KILLABLE_CHANNELS = [
 ] as const;
 export type KillableChannel = (typeof KILLABLE_CHANNELS)[number];
 
-export const INCIDENT_CENTRE = { lat: 34.0459, lng: -118.5426 };
+/**
+ * Real ignition point of the January 2025 Palisades fire — the same seed used by
+ * the fire-spread backtest in
+ * github.com/charleneleong-ai/smart-city-foundation-model.
+ */
+export const INCIDENT_CENTRE = { lat: 34.0725, lng: -118.5425 };
 
 export type FirefighterSimState = {
   callsign: Callsign;

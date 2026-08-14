@@ -16,7 +16,8 @@ import { useEffect, useRef } from "react";
 import { asBand, BAND_COLOUR, COLOURS, presentation } from "./theme";
 import type { Snapshot } from "./types";
 
-const PALISADES = { lat: 34.0459, lng: -118.5426 };
+/** Real Palisades ignition point, January 2025. */
+const PALISADES = { lat: 34.0725, lng: -118.5425 };
 
 /** Safe zone / muster point, north-west of the incident. */
 const SAFE_ZONE = { lat: 34.0522, lng: -118.5524, radiusM: 260 };
@@ -79,7 +80,10 @@ export function IncidentMap({
         ],
       },
       center: [PALISADES.lng, PALISADES.lat],
-      zoom: 13.2,
+      // The real burn area is about 11 km across; the crews work a sector a few
+      // hundred metres wide. This frames the working area with the burn
+      // perimeter visible around it — zoom out one step to see the whole fire.
+      zoom: 12.2,
       attributionControl: false,
     });
 
@@ -117,7 +121,40 @@ export function IncidentMap({
         },
       });
 
-      // Fire front — filled, plus a bright leading edge
+      // REAL burn perimeter — NIFC, Tier A. Drawn beneath the simulated front
+      // and styled differently so the two are never mistaken for each other.
+      m.addSource("burn-perimeter", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: "burn-fill",
+        type: "fill",
+        source: "burn-perimeter",
+        paint: { "fill-color": "#F0A020", "fill-opacity": 0.08 },
+      });
+      m.addLayer({
+        id: "burn-line",
+        type: "line",
+        source: "burn-perimeter",
+        paint: {
+          "line-color": "#F0A020",
+          "line-width": 2,
+          "line-dasharray": [4, 3],
+          "line-opacity": 0.9,
+        },
+      });
+
+      void fetch("/api/demo/burn-perimeter")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((gj: unknown) => {
+          if (gj === null) return;
+          const src = m.getSource("burn-perimeter") as maplibregl.GeoJSONSource | undefined;
+          src?.setData(gj as GeoJSON.Feature);
+        })
+        .catch(() => undefined);
+
+      // Simulated fire front — filled, plus a bright leading edge
       m.addSource("fire-front", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -219,11 +256,17 @@ export function IncidentMap({
         className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-[11px]"
         style={{ background: "rgba(5,6,15,0.85)", color: COLOURS.muted, border: `1px solid ${COLOURS.border}` }}
       >
-        Pacific Palisades · {snapshot?.fireFront.providerLabel ?? "no fire front"}
+        <span style={{ color: COLOURS.text }}>Pacific Palisades</span> · ignition
+        34.0725, −118.5425
         <br />
-        <span style={{ color: BAND_COLOUR.CAUTION }}>
-          Fire geometry is a placeholder, not a fire behaviour prediction
-        </span>
+        <span style={{ color: BAND_COLOUR.CAUTION }}>▭ dashed amber</span> = REAL
+        NIFC burn perimeter, Jan 2025 (Tier A)
+        <br />
+        <span style={{ color: "#FF6A00" }}>▬ solid orange</span> = SIMULATED front
+        — placeholder, not a fire behaviour prediction
+        <br />
+        <span style={{ color: BAND_COLOUR.UNKNOWN }}>● crew</span> = simulated
+        deployment positions, never real
       </div>
     </div>
   );
