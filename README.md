@@ -46,24 +46,45 @@ The `FireFrontProvider` interface has three implementations:
 The risk engine never learns which provider is active. It receives a distance in
 metres and a confidence, and nothing more. A test enforces that boundary.
 
-## Current state — Milestone 2 of 6
+The **commander view at `/` does not use the geometric ellipse at all.** It draws
+the real observed NIFC perimeter and grows it along the published acreage curve,
+which is closer to honest but still not a prediction: every perimeter before the
+fire reaches full size is interpolated, and the real fire did not grow
+self-similarly. The ellipse remains only in the tick-based `/live` view.
+
+## Current state
 
 Built:
 
 - `lib/risk/` — the deterministic risk engine, pure TypeScript with no React, no
   database and no framework imports
-- `config/risk-default.json` — 78 named, bounded, provenance-tagged parameters
+- `lib/physiology/` — reduced ISO 7933 heat balance, Karvonen heart-rate reserve
+  with a PPE penalty, and a Kalman core-temperature estimator driven by heart
+  rate
+- `lib/sensors/` — the EPA PurpleAir PM2.5 correction and a vendor-agnostic CGM
+  adapter (Dexcom **sandbox** only)
+- `config/` — 86 risk parameters and 64 physiology parameters, each named,
+  bounded and provenance-tagged
 - `lib/fire/` — the fire front abstraction and its three providers
+- `lib/sim/` — the Palisades scene: real perimeter geometry, and a deterministic
+  evaluator that is a pure function of (time, crew positions)
 - `prisma/schema.prisma` — ten tables, UUID keys, UTC timestamps, units in field
   names, `Observation` and `AuditEvent` append-only **enforced by SQLite
   triggers**
-- Fifteen API routes under `/app/api`, every body Zod-validated
-- 64 tests, including six fast-check properties
+- Twenty API routes under `/app/api`, every body Zod-validated
+- 274 tests, including 27 fast-check properties
 
-Not built: simulator, map, commander dashboard, forecasting, recommendation
-generation, post-incident report. Those are Milestones 3–6. The recommendation
-action routes exist and enforce the reason rule; nothing creates recommendations
-yet.
+Two front ends:
+
+- **`/`** — the commander view. Scrub the real Palisades timeline, drag crew
+  around the map, and read three personalised risk zones per firefighter.
+- **`/live`** — the tick-based simulator. Slower and narrower, but it is the only
+  path that pushes observations through `POST /observations` with validation,
+  provenance and the audit log.
+
+Not built: forecasting, recommendation *generation*, post-incident report. The
+recommendation action routes exist and enforce the reason rule; nothing creates
+recommendations yet.
 
 ## Setup
 
@@ -109,7 +130,18 @@ POST   /api/recommendations/[id]/reject       ← reason required, 400 if empty
 POST   /api/recommendations/[id]/override     ← reason required, 400 if empty
 GET    /api/audit
 GET    /api/health
+
+POST   /api/demo/scene                        ← the commander view: (time, crew positions) → picture
+GET    /api/demo/contours                     ← per-firefighter band boundaries
+GET    /api/demo/compare
+GET    /api/demo/burn-perimeter
+GET    /api/sim   POST /api/sim               ← the tick-based /live simulator
 ```
+
+`POST /api/demo/scene` is stateless on purpose. The commander scrubs a timeline
+and drags crew markers, so every request carries the time and the positions and
+the same request always returns the same answer. Nothing accumulates
+server-side, which is what makes scrubbing backwards valid.
 
 The reason requirement on reject and override is enforced three times: by Zod on
 the request body, by an assertion in the shared action handler, and by a SQLite
@@ -138,6 +170,35 @@ Physiology       SIMULATED   C · SIMULATED   valoris_physiology_models
 
 A Tier C record marked `isSimulated: false` — synthetic data presented as real —
 throws at construction. So does a Tier A record marked simulated.
+
+### What is real in the Palisades demo
+
+The commander view lists this on screen under **"What here is real?"**, so the
+synthetic parts are disclosed rather than discovered:
+
+| | Component | Detail |
+|---|---|---|
+| **REAL** | Risk engine | Production `assessRisk` and `derivePhysiology`, unmodified |
+| **REAL** | Fire outline | NIFC WFIGS observed perimeter, IR image interpretation, 23,448 acres |
+| **REAL** | Timeline endpoints | Discovery and incident close read from the interagency record, not typed in |
+| **UNVERIFIED** | Growth timing | Intermediate acreages from contemporaneous reporting, not the CAL FIRE archive |
+| **UNVERIFIED** | Polygon date | Stamped 8 Jan but revised 21 Jan and measuring the *final* size — so it is treated as a final footprint, never a dated snapshot |
+| **SYNTHETIC** | Intermediate perimeters | Area-scaled interpolation. The real fire did not grow self-similarly. **Not a fire behaviour prediction** |
+| **SYNTHETIC** | Smoke and heat | Exponential falloff with hand-chosen scale lengths. No wind, terrain or plume model |
+| **SYNTHETIC** | Crew positions | Invented. Real deployment positions are not public and are never guessed |
+
+There is no dated perimeter progression for this fire. That was verified against
+the live services rather than assumed — `WFIGS_Interagency_Perimeters`,
+`..._YearToDate` and `WFIGS_Daily_Perimeters_Public` each return exactly one
+Palisades 2025 feature. See
+[the data README](data/historical/palisades-2025/README.md).
+
+> **One claim to make carefully.** The personalised contour distances come from
+> the real engine, but their *absolute metres* also depend on the synthetic
+> atmosphere model, whose falloff constants have no empirical basis. The
+> **ordering** between firefighters is meaningful; the **metres** are
+> illustrative. Say "the engine puts BRAVO-2 four times further out than
+> ALPHA-1", not "BRAVO-2 needs 950 metres".
 
 ## Verify it yourself
 
@@ -168,19 +229,159 @@ what happens when a heart-rate sensor stops reporting.
 npm run lint && npm run typecheck && npm test
 ```
 
-## How the score is built
+## Data inputs
 
-| Component | Weight | Inputs |
+Four input groups reach `assessRisk`, defined in
+[`lib/risk/types.ts`](lib/risk/types.ts).
+
+### Health profile — static, one per firefighter
+
+| Field | Type | What it drives |
 |---|---|---|
-| Physiological | 40% | HR as % of age-adjusted max, SpO2 deviation from personal baseline, estimated core temp, fatigue, time on task |
-| Environmental | 30% | CO, PM2.5, humidity-adjusted ambient heat, gated by SCBA on-air status |
-| Proximity | 20% | Distance to fire front, escape route status, SCBA pressure |
-| Profile vulnerability | 10% | Respiratory risk, heat tolerance, fitness, previous shift hours, condition count, cumulative exposure |
+| `age` | years | Maximum heart rate, and therefore every HR threshold |
+| `fitness` | low / moderate / high | Profile vulnerability subscore |
+| `restingHrBpm` | bpm | Personal baseline, not a population one |
+| `spo2BaselinePct` | % | SpO2 is scored as *deviation from this*, not absolute |
+| `conditions[]` | strings | Counted — see the caveat below |
+| `respiratoryRisk` | none / mild / moderate / high | Shifts the SpO2 alert band earlier |
+| `heatTolerance` | low / avg / high | Shifts core-temperature and ambient limits |
+| `prevShiftHours` | hours | Fatigue carried in before the shift starts |
+| `cumulativeCoExposureIndex` | 0–1 | Tightens CO **and** PM2.5 limits |
+| `cumulativeHeatExposureIndex` | 0–1 | Tightens the ambient heat limit |
+| `glucoseMonitored` | bool | Gates glucose scoring entirely |
 
-Personalisation runs through all four: age sets maximum heart rate, respiratory
-risk makes SpO2 alerts fire earlier, heat tolerance shifts temperature limits,
-previous shift hours raise the fatigue baseline, and cumulative exposure tightens
-environmental thresholds.
+`glucoseMonitored` matters more than it looks. Without it, an absent CGM reading
+would count as a missing input for the whole crew and score everyone at worst
+case for a channel most of them do not wear.
+
+### Vitals — wearable
+
+`hrBpm`, `spo2Pct`, `coreTempC`, `respRatePerMin`, `fatiguePct`, `hydrationPct`,
+`fallDetected`, `glucoseMmolL`.
+
+Three of these carry conditions:
+
+- **`coreTempC` is always estimated, never measured.** Nothing in Valoris
+  measures core temperature. Declaring it estimated caps confidence below `high`.
+- **`glucoseMmolL` is mmol/L only**, never mg/dL, and its timestamp must be the
+  *effective sample time* — when the blood glucose it represents actually
+  occurred — not when the reading arrived.
+- **`recentSpo2Pct[]`** is supplied by the caller because `assessRisk` is
+  stateless and the SpO2 override is defined as "confirmed across N consecutive
+  readings". Too few readings and the engine cannot confirm, so it fails safe: a
+  single breaching reading fires the override.
+
+### Environment
+
+`ambientTempC`, `humidityPct`, `coPpm`, `pm25UgM3`, `windSpeedMs`, `windDirDeg`.
+
+### Position and equipment
+
+`lat`, `lng`, `distanceToFireFrontM`, `distanceToSafeZoneM`,
+`escapeRouteStatus`, `scbaPressurePct`, `scbaOnAir`, `timeOnTaskMin`,
+`manualMaydayActive`.
+
+### The input that is easy to miss: freshness
+
+**Every channel carries a `lastUpdatedMs` timestamp, and freshness is a
+first-class input rather than metadata.** A frozen GPS or a dead SCBA sensor
+keeps reporting a perfectly plausible number indefinitely; tracking the age of
+each channel is what stops a stale reading from contributing to a confident
+score.
+
+Omitting `Position.lastUpdatedMs` is deliberately *unsafe*: with no map, no
+channel's age can be established, so every position channel is treated as
+missing. Forgetting to report freshness is meant to be loud, not silent.
+
+## How the risk profile is built
+
+Six stages. Every number below is a named, bounded parameter in
+[`config/risk-default.json`](config/risk-default.json) — 86 of them — and none is
+hard-coded in the engine.
+
+### 1. Personalise the thresholds
+
+Before anything is scored, the thresholds are recomputed *for this person*. This
+is where the differentiation originates, not in a post-hoc adjustment:
+
+- `hrMax = constant − age`, and every heart-rate threshold is a fraction of it
+- `respiratoryRisk` shifts the SpO2 alert band earlier, by level
+- `heatTolerance` shifts the core-temperature and ambient bands
+- `cumulativeCoExposureIndex` **multiplicatively tightens** the CO and PM2.5
+  limits (up to 30%)
+- `cumulativeHeatExposureIndex` tightens the ambient limit (up to 5 °C)
+- `prevShiftHours` adds fatigue carry-over at 1.5% per hour
+
+Two firefighters with identical sensor readings are therefore measured against
+different rulers. That is the whole product.
+
+### 2. Gate every channel on freshness
+
+Fresh (< 60 s) is usable. Stale (60–120 s) is usable but drops confidence.
+Missing, or older than 120 s, is **scored at worst case** — never skipped, never
+treated as absent-therefore-fine. Glucose gets its own slower clock: stale at
+7 minutes, missing at 15, because a CGM does not sample every second.
+
+### 3. Four subscores
+
+| Subscore | Weight | Built from |
+|---|---|---|
+| **Physiological** | 0.40 | HR 0.30, SpO2 0.30, core temp 0.20, fatigue 0.12, time on task 0.08, glucose 0.25 |
+| **Environmental** | 0.30 | CO 0.40, heat 0.35, PM2.5 0.25 — heat is humidity-adjusted, and the whole subscore is gated by SCBA on-air status |
+| **Proximity** | 0.20 | Fire distance 0.40, escape route 0.35, SCBA pressure 0.25 |
+| **Profile vulnerability** | 0.10 | Fitness, previous shift hours, condition count, cumulative exposure |
+
+The physiological sub-weights sum past 1.0 on purpose. It is a **weight-normalised
+mean**, so channels that do not apply — glucose for an unmonitored firefighter —
+drop out and the remaining weights renormalise. Glucose may only ever *raise* the
+physiological subscore, never lower it, so wearing a CGM cannot make you look
+safer than not wearing one.
+
+### 4. Composite to a band
+
+| Band | Composite score |
+|---|---|
+| `SAFE` | ≤ 25 |
+| `CAUTION` | ≤ 50 |
+| `HIGH` | ≤ 75 |
+| `CRITICAL` | > 75 |
+
+### 5. Hard overrides bypass all of it
+
+Any single one of these forces `CRITICAL` regardless of the composite, the band
+cut-offs, or confidence:
+
+| Override | Threshold |
+|---|---|
+| SpO2 | < 88%, confirmed across 3 consecutive readings |
+| Core temperature | ≥ 39.5 °C |
+| Heart rate | ≥ 97% of age-adjusted maximum |
+| SCBA pressure | ≤ 20% |
+| Escape route blocked | within 150 m of the fire front |
+| Glucose | < 3.5 mmol/L (monitored firefighters only) |
+
+The 39.5 °C core-temperature limit is **stricter** than the 40 °C figure often
+cited in the literature. That is a deliberate open question for clinical review,
+not an oversight — see [docs/CLINICAL_ASSUMPTIONS.md](docs/CLINICAL_ASSUMPTIONS.md).
+
+### 6. Missing data cannot hide danger
+
+The final band is `maxBand(compositeBand, "UNKNOWN")` — the **more severe of the
+two wins**. A dead sensor can never produce `SAFE`. Confidence is reported
+separately from the band, so "we do not know" is never presented as "you are
+fine".
+
+### Two caveats worth knowing up front
+
+**Conditions are counted, not graded.** Four mild conditions score the same as
+one severe one, at 25 points each. Known limitation 15.
+
+**An open defect:** deleting a *stale* channel can raise confidence from `low` to
+`medium`, because a present-but-stale reading counts toward the stale-input tally
+while an absent one escapes it. It fails the existing property test
+intermittently. Documented as item 8a in
+[docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md) with a deterministic
+reproduction. Unfixed: `lib/risk/` is frozen for the demo build.
 
 ## Safety rules the engine enforces
 
