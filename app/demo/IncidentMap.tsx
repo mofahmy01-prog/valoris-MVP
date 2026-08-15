@@ -22,6 +22,55 @@ const PALISADES = { lat: 34.0725, lng: -118.5425 };
 /** Safe zone / muster point, north-west of the incident. */
 const SAFE_ZONE = { lat: 34.0522, lng: -118.5524, radiusM: 260 };
 
+const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+
+/**
+ * Outer ring for the SAFE wash. The green region is everything OUTSIDE the
+ * safe contour, which has no natural outer edge, so it is drawn as a large box
+ * with the contour punched out of it as a hole. Comfortably larger than any
+ * view the demo uses.
+ */
+const WORLD_BOX: number[][] = [
+  [-119.4, 33.4],
+  [-117.7, 33.4],
+  [-117.7, 34.8],
+  [-119.4, 34.8],
+  [-119.4, 33.4],
+];
+
+/**
+ * The four risk regions, painted outermost first so the nested rings read as
+ * filled bands. `ring` names which contour bounds the region: everything inside
+ * `polygons.SAFE` is CAUTION or worse, inside `polygons.CAUTION` is HIGH or
+ * worse, and so on.
+ */
+const ZONES = [
+  { id: "zone-safe", ring: "SAFE", colour: BAND_COLOUR.SAFE, opacity: 0.14, hole: true },
+  { id: "zone-caution", ring: "SAFE", colour: BAND_COLOUR.CAUTION, opacity: 0.22, hole: false },
+  { id: "zone-high", ring: "CAUTION", colour: BAND_COLOUR.HIGH, opacity: 0.26, hole: false },
+  { id: "zone-critical", ring: "HIGH", colour: BAND_COLOUR.CRITICAL, opacity: 0.32, hole: false },
+] as const;
+
+/** Bearing index used to park the zone captions, out of 48. South-west. */
+const LABEL_AT = 30;
+
+type ContourResponse = {
+  incidentMinutes: number;
+  searchLimitM: number;
+  polygonsFor: string | null;
+  firePerimeter: number[][] | null;
+  polygons: Record<string, number[][]> | null;
+  contours: {
+    callsign: string;
+    ageYears: number;
+    conditions: string[];
+    currentBand: string;
+    currentDistanceM: number;
+    cautionBoundaryM: number | null;
+    safeBoundaryM: number | null;
+  }[];
+};
+
 function circlePolygon(
   centre: { lat: number; lng: number },
   radiusM: number,
@@ -57,8 +106,27 @@ export function IncidentMap({
    */
   const [ready, setReady] = useState(false);
   const [basemapOn, setBasemapOn] = useState(false);
+  const [contour, setContour] = useState<ContourResponse | null>(null);
+  /**
+   * Keep the contours framed as they grow. The fire starts a few hundred metres
+   * across and ends up kilometres wide; at a fixed zoom the whole risk picture
+   * is either a speck or off the edge of the screen. Any manual pan or zoom
+   * hands control back to the operator.
+   */
+  const [followFire, setFollowFire] = useState(true);
+  const followFireRef = useRef(true);
+  followFireRef.current = followFire;
+  const contourInFlight = useRef(false);
+  const zoneLabels = useRef<Record<string, maplibregl.Marker>>({});
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+
+  /**
+   * Whose contours the map is drawing. The zones are meaningless without a
+   * person attached to them, so with nobody selected it falls back to the first
+   * of the crew rather than showing an unattributed picture.
+   */
+  const contourFor = selected ?? snapshot?.firefighters[0]?.callsign ?? null;
 
   /* --- Create the map once ---------------------------------------------- */
   useEffect(() => {
@@ -110,6 +178,40 @@ export function IncidentMap({
     // logged rather than swallowed inside the event handler.
     const initLayers = () => {
       try {
+      /*
+        PERSONALISED RISK CONTOURS — added first, so they sit at the bottom of
+        the stack and everything else reads over them.
+
+        These are not a buffer drawn at a fixed distance from the fire. Each
+        contour is the locus of points where the real engine changes ITS answer
+        for ONE named firefighter, so selecting a different person redraws the
+        map. That is the product in a single picture.
+      */
+      for (const zone of ZONES) {
+        m.addSource(zone.id, { type: "geojson", data: EMPTY });
+        m.addLayer({
+          id: `${zone.id}-fill`,
+          type: "fill",
+          source: zone.id,
+          paint: { "fill-color": zone.colour, "fill-opacity": zone.opacity },
+        });
+      }
+
+      // Boundaries as their own source, so each ring gets a dashed edge in its
+      // own colour without the SAFE region's outer box being drawn too.
+      m.addSource("zone-edges", { type: "geojson", data: EMPTY });
+      m.addLayer({
+        id: "zone-edges-line",
+        type: "line",
+        source: "zone-edges",
+        paint: {
+          "line-color": ["get", "colour"],
+          "line-width": 2.5,
+          "line-dasharray": [3, 2],
+          "line-opacity": 0.95,
+        },
+      });
+
       // Safe zone
       m.addSource("safe-zone", {
         type: "geojson",
@@ -196,6 +298,12 @@ export function IncidentMap({
     if (m.isStyleLoaded()) initLayers();
     else m.once("load", initLayers);
 
+    // Touching the map means the operator wants to look somewhere specific;
+    // stop dragging the viewport out from under them.
+    const releaseFollow = () => setFollowFire(false);
+    m.on("dragstart", releaseFollow);
+    m.on("wheel", releaseFollow);
+
     m.on("error", (e) => {
       // Tile failures are survivable — our own layers still draw. Log, do not
       // let a basemap problem take the operational picture down with it.
@@ -211,6 +319,9 @@ export function IncidentMap({
     map.current = m;
     return () => {
       observer.disconnect();
+      for (const marker of Object.values(zoneLabels.current)) marker.remove();
+      zoneLabels.current = {};
+      markers.current = {};
       m.remove();
       map.current = null;
       setReady(false);
@@ -283,6 +394,133 @@ export function IncidentMap({
     }
   }, [snapshot, selected, ready]);
 
+  /* --- Personalised contours for whoever is selected --------------------- */
+  useEffect(() => {
+    if (!ready || snapshot === null || contourFor === null) return;
+
+    let cancelled = false;
+
+    // One request in flight at a time. The sweep is thousands of engine
+    // evaluations; if it ever runs slower than the poll interval, queuing them
+    // up would make it worse rather than better.
+    if (contourInFlight.current) return;
+    contourInFlight.current = true;
+
+    void fetch(
+      `/api/demo/contours?incidentId=${snapshot.incident.id}&callsign=${encodeURIComponent(contourFor)}`,
+    )
+      .then((r) => (r.ok ? (r.json() as Promise<{ data?: ContourResponse }>) : null))
+      .then((body) => {
+        if (!cancelled && body != null) setContour(body.data ?? (body as unknown as ContourResponse));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        contourInFlight.current = false;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [snapshot, contourFor, ready]);
+
+  /* --- Paint the contours ------------------------------------------------ */
+  useEffect(() => {
+    const m = map.current;
+    if (m === null || !ready) return;
+
+    const rings = contour?.polygons ?? null;
+
+    for (const zone of ZONES) {
+      const src = m.getSource(zone.id) as maplibregl.GeoJSONSource | undefined;
+      if (src === undefined) continue;
+
+      const ring = rings?.[zone.ring];
+      if (ring === undefined || ring.length < 4) {
+        src.setData(EMPTY);
+        continue;
+      }
+
+      src.setData({
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "Polygon",
+          // The SAFE wash is the box with the contour punched out; the rest are
+          // plain nested polygons painted over one another.
+          coordinates: zone.hole ? [WORLD_BOX, ring] : [ring],
+        },
+      });
+    }
+
+    const edges = m.getSource("zone-edges") as maplibregl.GeoJSONSource | undefined;
+    if (edges !== undefined) {
+      const features: GeoJSON.Feature[] = [];
+      for (const band of ["SAFE", "CAUTION", "HIGH"] as const) {
+        const ring = rings?.[band];
+        if (ring === undefined || ring.length < 4) continue;
+        features.push({
+          type: "Feature",
+          properties: { colour: BAND_COLOUR[band] },
+          geometry: { type: "LineString", coordinates: ring },
+        });
+      }
+      edges.setData({ type: "FeatureCollection", features });
+    }
+
+    // Captions sitting on their own contour. DOM markers rather than a symbol
+    // layer: symbol text needs a glyph server, and the map is deliberately
+    // self-contained so it works with no network.
+    const captions: { key: string; ring: string; text: string; colour: string }[] = [
+      { key: "safe", ring: "SAFE", text: "SAFE", colour: BAND_COLOUR.SAFE },
+      { key: "caution", ring: "CAUTION", text: "CAUTION", colour: BAND_COLOUR.CAUTION },
+      { key: "high", ring: "HIGH", text: "DANGER", colour: BAND_COLOUR.HIGH },
+    ];
+
+    for (const caption of captions) {
+      const ring = rings?.[caption.ring];
+      const point = ring?.[LABEL_AT];
+      let marker = zoneLabels.current[caption.key];
+
+      if (point === undefined || ring === undefined || ring.length < 4) {
+        marker?.remove();
+        delete zoneLabels.current[caption.key];
+        continue;
+      }
+
+      if (marker === undefined) {
+        const el = document.createElement("div");
+        el.style.pointerEvents = "none";
+        marker = new maplibregl.Marker({ element: el }).setLngLat([
+          point[0] as number,
+          point[1] as number,
+        ]);
+        marker.addTo(m);
+        zoneLabels.current[caption.key] = marker;
+      }
+
+      marker.setLngLat([point[0] as number, point[1] as number]);
+      marker.getElement().innerHTML = `
+        <div style="
+          transform:translate(-50%,-50%);
+          font:800 15px ui-monospace,monospace;letter-spacing:2px;
+          color:${caption.colour};
+          text-shadow:0 0 8px rgba(5,6,15,0.95),0 0 3px rgba(5,6,15,1);
+          white-space:nowrap;
+        ">${caption.text}</div>`;
+    }
+
+    // Frame the outermost contour. Padded, so the SAFE band stays visible
+    // rather than sitting exactly on the edge of the canvas.
+    const outer = rings?.SAFE;
+    if (followFireRef.current && outer !== undefined && outer.length >= 4) {
+      const bounds = new maplibregl.LngLatBounds();
+      for (const point of outer) {
+        bounds.extend([point[0] as number, point[1] as number]);
+      }
+      m.fitBounds(bounds, { padding: 70, duration: 600, maxZoom: 16 });
+    }
+  }, [contour, ready, followFire]);
+
   const toggleBasemap = () => {
     const m = map.current;
     if (m === null || !ready) return;
@@ -303,10 +541,12 @@ export function IncidentMap({
         tileSize: 256,
         attribution: "© OpenStreetMap contributors © CARTO",
       });
-      // Beneath everything of ours — the basemap is context, not content.
+      // Beneath everything of ours — the basemap is context, not content. The
+      // insert target is the first ZONES layer, which is now the bottom of our
+      // stack; anchoring to the safe zone would bury the contours.
       m.addLayer(
         { id: "carto", type: "raster", source: "carto", paint: { "raster-opacity": 0.8 } },
-        "safe-zone-fill",
+        "zone-safe-fill",
       );
       setBasemapOn(true);
     } catch (error) {
@@ -318,17 +558,55 @@ export function IncidentMap({
     <div className="relative h-full w-full overflow-hidden rounded" style={{ border: `1px solid ${COLOURS.border}` }}>
       <div ref={container} className="h-full w-full" />
 
-      <button
-        onClick={toggleBasemap}
-        className="absolute right-2 top-2 z-10 rounded px-2 py-1 text-[11px] font-semibold"
-        style={{
-          background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
-          border: `1px solid ${COLOURS.border}`,
-          color: COLOURS.text,
-        }}
-      >
-        BASEMAP {basemapOn ? "ON" : "OFF"}
-      </button>
+      <div className="absolute right-2 top-2 z-10 flex gap-1">
+        <button
+          onClick={() => setFollowFire((v) => !v)}
+          className="rounded px-2 py-1 text-[11px] font-semibold"
+          style={{
+            background: followFire ? "#1E2650" : "rgba(5,6,15,0.85)",
+            border: `1px solid ${followFire ? COLOURS.text : COLOURS.border}`,
+            color: COLOURS.text,
+          }}
+        >
+          FOLLOW {followFire ? "ON" : "OFF"}
+        </button>
+        <button
+          onClick={toggleBasemap}
+          className="rounded px-2 py-1 text-[11px] font-semibold"
+          style={{
+            background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
+            border: `1px solid ${COLOURS.border}`,
+            color: COLOURS.text,
+          }}
+        >
+          BASEMAP {basemapOn ? "ON" : "OFF"}
+        </button>
+      </div>
+
+      {/*
+        The zones mean nothing without a name attached. Two firefighters get
+        different contours from the same fire, so the map must always say whose
+        picture it is currently drawing.
+      */}
+      {contourFor !== null && (
+        <div
+          className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded px-3 py-1.5 text-center"
+          style={{
+            background: "rgba(5,6,15,0.9)",
+            border: `1px solid ${COLOURS.border}`,
+          }}
+        >
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: COLOURS.muted }}>
+            personalised risk zones for
+          </div>
+          <div className="font-mono text-sm font-bold" style={{ color: COLOURS.text }}>
+            {contourFor}
+          </div>
+          <div className="text-[10px]" style={{ color: COLOURS.muted }}>
+            select another firefighter to redraw
+          </div>
+        </div>
+      )}
       <div
         className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-[11px]"
         style={{ background: "rgba(5,6,15,0.85)", color: COLOURS.muted, border: `1px solid ${COLOURS.border}` }}

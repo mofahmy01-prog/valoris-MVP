@@ -80,6 +80,48 @@ Limitations that follow:
 
    *Planned resolution — see "Sensor dropout projection" below.*
 
+8a. **OPEN DEFECT — deleting a stale channel can RAISE confidence.** A channel
+    that is present but stale counts toward the stale-input tally and drags
+    confidence down. The same channel absent entirely, with no entry in
+    `lastUpdatedMs`, is scored as missing and escapes that tally, so confidence
+    can rise. Removing a reading is therefore rewarded, which is the exact
+    failure mode item 6 and the property test exist to prevent.
+
+    Found by the existing property test `assessRisk — removing an input is never
+    rewarded` in `lib/risk/risk.test.ts`. It is **intermittent**, because it
+    needs fast-check to generate a scenario whose only fresh-tracked channel is
+    stale; it reproduces roughly once in every three to twenty-five runs.
+
+    fast-check reported seed `839379526`. Note that neither a `--seed` CLI flag
+    nor an `FC_SEED` environment variable replays it — both were tried and
+    neither reproduces; fast-check only accepts a seed passed as the options
+    argument to `fc.assert`.
+
+    The shrunk counterexample reproduces deterministically on its own, with no
+    property testing involved. `env.ambientTempC` is the only channel present in
+    `env.lastUpdatedMs`, timestamped 61 s before `NOW_MS` (stale); every other
+    environment channel is already `null`. Vitals are
+    `hrBpm 40 / spo2Pct 70 / coreTempC 35`, the profile is an 18-year-old with
+    `fitness: low`, and `pos.lastUpdatedMs` is empty. Removing `ambientTempC`
+    then gives:
+
+    | | confidence | score | band |
+    |---|---|---|---|
+    | stale channel present | `low` | 58.4 | `CRITICAL` |
+    | channel removed | `medium` | 68.9 | `CRITICAL` |
+
+    The score correctly gets *worse*, because a missing input is scored as worst
+    case. Confidence moves the wrong way. The band is unaffected in this
+    instance, so the practical exposure is to anything gated on confidence —
+    including the "never report `SAFE` at low confidence" rule, which a spurious
+    `medium` would stop protecting.
+
+    **Not fixed.** It is pre-existing, it does not affect the demo, and
+    `lib/risk/` is frozen for the demo build. The fix belongs in the confidence
+    calculation: a missing channel must count at least as heavily as a stale one.
+    Until then, **a confidence figure that improves at the moment a sensor drops
+    out must be read as a fault, not as better information.**
+
 9. **The engine is stateless.** It has no memory between calls. Trends,
    confirmation windows and latching all have to be supplied by the caller.
    The SpO2 three-reading confirmation is passed in as `recentSpo2Pct`; if it is

@@ -242,8 +242,15 @@ export function advance(state: SimState): SimState {
     const timeOnTaskMin = prev.timeOnTaskMin + 1;
 
     // HR climbs with time on task and with proximity to the front.
+    //
+    // Proximity is weighted well above elapsed time on purpose. With the time
+    // term dominant, every crew pinned the 205 clamp by roughly T+80 whatever
+    // they did, all six saturated CRITICAL, and the personalised contours
+    // collapsed — no distance changed anyone's band, so there were no rings to
+    // draw. Letting proximity lead keeps the map the thing that moves the
+    // score: advance on the front and HR climbs, hold off and it settles.
     const hrTarget =
-      RESTING_HR[callsign] + 45 + timeOnTaskMin * 1.15 + proximity * 38;
+      RESTING_HR[callsign] + 45 + timeOnTaskMin * 0.28 + proximity * 55;
     const hrBpm = clamp(
       prev.hrBpm + (hrTarget - prev.hrBpm) * 0.25 + wobble(seed + 2, 1.5),
       RESTING_HR[callsign],
