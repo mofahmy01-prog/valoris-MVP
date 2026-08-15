@@ -148,6 +148,16 @@ export function CommanderView() {
 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
+  /**
+   * Latest crew positions, for the marker drag handlers.
+   *
+   * Those handlers are attached once, when a marker is first created, so they
+   * capture whatever `scene` was current at that moment and never see another.
+   * A ref is read at drag time instead, which is the difference between moving
+   * one crew member and silently resetting all the others.
+   */
+  const crewRef = useRef<Crew[]>([]);
+  crewRef.current = scene?.crew ?? crewRef.current;
 
   /* --- Fetch the scene ---------------------------------------------------- */
   const load = useCallback(
@@ -247,13 +257,21 @@ export function CommanderView() {
           paint: { "fill-color": "#C4121F", "fill-opacity": 0.62 },
         });
 
+        /*
+          Heavier than a hairline on purpose. A personal safe boundary is a few
+          hundred metres, while this fire grows to 13 km across, so at
+          whole-fire zoom the three bands are a fraction of a percent of the
+          view. The fills alone are invisible there; the dashed edges are what
+          actually carries the information, and they widen as you zoom out to
+          stay readable.
+        */
         m.addLayer({
           id: "zone-caution-line",
           type: "line",
           source: "zone-caution",
           paint: {
             "line-color": ZONE_COLOUR.CAUTION,
-            "line-width": 2,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3.5, 14, 2],
             "line-dasharray": [3, 2],
           },
         });
@@ -263,7 +281,7 @@ export function CommanderView() {
           source: "zone-danger",
           paint: {
             "line-color": ZONE_COLOUR.DANGER,
-            "line-width": 2,
+            "line-width": ["interpolate", ["linear"], ["zoom"], 9, 3, 14, 1.8],
             "line-dasharray": [3, 2],
           },
         });
@@ -417,14 +435,31 @@ export function CommanderView() {
           event.stopPropagation();
           setSelected(callsign);
         });
+        marker.on("dragstart", () => {
+          // Whoever is being moved becomes the subject of the map. Without this
+          // the painted bands still belong to somebody else, so a marker could
+          // be dropped into a red band and correctly stay green — green being
+          // its own verdict, red being another firefighter's. Both were right
+          // and the combination was unreadable.
+          setSelected(callsign);
+        });
         marker.on("dragend", () => {
           const at = marker!.getLngLat();
           // Freeze the whole crew into explicit placements on first drag, so the
           // server stops falling back to defaults for everyone else.
+          //
+          // Read positions from a ref, NOT from `scene`. This handler is created
+          // once, when the marker first appears, so a captured `scene` is frozen
+          // at that render: dragging a second crew member would silently teleport
+          // the first one back to where it started.
           setPlacements((current) => {
             const base =
               current ??
-              scene.crew.map((c) => ({ callsign: c.callsign, lat: c.lat, lng: c.lng }));
+              crewRef.current.map((c) => ({
+                callsign: c.callsign,
+                lat: c.lat,
+                lng: c.lng,
+              }));
             return base.map((p) =>
               p.callsign === callsign ? { ...p, lat: at.lat, lng: at.lng } : p,
             );
@@ -436,18 +471,37 @@ export function CommanderView() {
         marker.setLngLat([member.lng, member.lat]);
       }
 
+      /*
+        Only the SUBJECT of the map gets a solid, band-coloured dot.
+
+        The painted bands are one firefighter's. A second crew member's own
+        verdict is still shown — it has to be, a commander needs everyone's
+        status — but as a hollow ring and a text chip, so it never reads as a
+        claim about the ground they are standing on. Otherwise a green dot
+        sitting in a red band looks like a contradiction when in fact the two
+        marks are answering questions about two different people.
+      */
+      const dot = isSelected
+        ? `<div style="
+             width:20px;height:20px;border-radius:50%;
+             background:${colour};border:4px solid #FFFFFF;
+             box-shadow:0 0 12px ${colour};
+           "></div>`
+        : `<div style="
+             width:13px;height:13px;border-radius:50%;
+             background:rgba(5,6,15,0.55);border:3px solid ${colour};
+           "></div>`;
+
       marker.getElement().innerHTML = `
         <div style="display:flex;align-items:center;gap:5px;transform:translate(-50%,-50%)">
+          ${dot}
           <div style="
-            width:${isSelected ? 20 : 15}px;height:${isSelected ? 20 : 15}px;border-radius:50%;
-            background:${colour};
-            border:${isSelected ? 4 : 2}px solid ${isSelected ? "#FFFFFF" : "#05060F"};
-            box-shadow:0 0 10px ${colour};
-          "></div>
-          <div style="
-            background:rgba(5,6,15,0.88);padding:2px 5px;border-radius:3px;
+            background:rgba(5,6,15,${isSelected ? "0.92" : "0.78"});
+            padding:2px 5px;border-radius:3px;
             border-left:3px solid ${colour};
-            font:700 11px ui-monospace,monospace;color:#E8ECF8;white-space:nowrap;
+            font:${isSelected ? "700 11px" : "600 10px"} ui-monospace,monospace;
+            color:#E8ECF8;white-space:nowrap;
+            opacity:${isSelected ? 1 : 0.85};
           ">${member.callsign}<span style="color:${colour}"> ${member.zone}</span></div>
         </div>`;
     }
@@ -459,6 +513,38 @@ export function CommanderView() {
       }
     }
   }, [scene, ready, selected, selectedCrew]);
+
+  /**
+   * Frame the selected firefighter closely enough to read their three bands.
+   *
+   * At whole-fire zoom a few hundred metres of standoff is invisible. This
+   * pulls in to a few times their own safe distance, which is the scale the
+   * zones actually live at.
+   */
+  const focusCrew = useCallback(() => {
+    const m = map.current;
+    if (m === null || selectedCrew === null) return;
+    const span = Math.max(1_200, (selectedCrew.cautionOffsetM ?? 1_000) * 3);
+    const dLat = span / 110_540;
+    const dLng = span / 92_270;
+    m.fitBounds(
+      [
+        [selectedCrew.lng - dLng, selectedCrew.lat - dLat],
+        [selectedCrew.lng + dLng, selectedCrew.lat + dLat],
+      ],
+      { duration: 700 },
+    );
+  }, [selectedCrew]);
+
+  /** Pull back out to the whole burn area. */
+  const showWholeFire = useCallback(() => {
+    const m = map.current;
+    if (m === null || scene === null) return;
+    const ring = ringFrom(scene.perimeterRadii, 0, scene.geo);
+    const bounds = new maplibregl.LngLatBounds();
+    for (const point of ring) bounds.extend([point[0] as number, point[1] as number]);
+    m.fitBounds(bounds, { padding: 60, duration: 700 });
+  }, [scene]);
 
   const start = scene?.timelineStartMs ?? Date.parse("2025-01-07T18:30:00Z");
   const end = scene?.timelineEndMs ?? Date.parse("2025-01-31T18:00:00Z");
@@ -490,17 +576,41 @@ export function CommanderView() {
         <div className="relative h-[58vh] min-w-0 flex-[3] lg:h-[calc(100vh-9.5rem)]">
           <div ref={container} className="h-full w-full" />
 
-          <button
-            onClick={() => setBasemapOn((v) => !v)}
-            className="absolute right-2 top-2 z-10 rounded px-2 py-1 text-[11px] font-semibold"
-            style={{
-              background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
-              border: `1px solid ${COLOURS.border}`,
-              color: COLOURS.text,
-            }}
-          >
-            BASEMAP {basemapOn ? "ON" : "OFF"}
-          </button>
+          <div className="absolute right-2 top-2 z-10 flex gap-1">
+            <button
+              onClick={focusCrew}
+              className="rounded px-2 py-1 text-[11px] font-bold"
+              style={{
+                background: "#1E2650",
+                border: `1px solid ${COLOURS.text}`,
+                color: COLOURS.text,
+              }}
+            >
+              ZOOM TO {selected}
+            </button>
+            <button
+              onClick={showWholeFire}
+              className="rounded px-2 py-1 text-[11px] font-semibold"
+              style={{
+                background: "rgba(5,6,15,0.85)",
+                border: `1px solid ${COLOURS.border}`,
+                color: COLOURS.text,
+              }}
+            >
+              WHOLE FIRE
+            </button>
+            <button
+              onClick={() => setBasemapOn((v) => !v)}
+              className="rounded px-2 py-1 text-[11px] font-semibold"
+              style={{
+                background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
+                border: `1px solid ${COLOURS.border}`,
+                color: COLOURS.text,
+              }}
+            >
+              BASEMAP {basemapOn ? "ON" : "OFF"}
+            </button>
+          </div>
 
           <div
             className="pointer-events-none absolute left-2 top-2 max-w-[22rem] rounded px-2 py-1.5 text-[10px] leading-relaxed"
@@ -513,8 +623,16 @@ export function CommanderView() {
             <div style={{ color: COLOURS.text, fontWeight: 700 }}>
               Risk zones for {selected}
             </div>
-            Zones are personal — they are computed from this firefighter&apos;s health
-            profile, so selecting someone else redraws them.
+            The bands belong to <b style={{ color: COLOURS.text }}>{selected}</b> alone —
+            they come from this firefighter&apos;s health profile, so selecting someone
+            else redraws them.
+            <br />
+            <span style={{ color: COLOURS.text }}>● solid dot</span> = the subject, whose
+            colour matches the band it stands in. <span
+              style={{ color: COLOURS.text }}
+            >○ hollow ring</span> = another crew member&apos;s own verdict, which can
+            differ from the band beneath them. Two people on the same ground with
+            different colours is the point, not a fault.
             <br />
             <span style={{ color: "#FF7A1A" }}>▬ fire</span> · shape is the REAL NIFC
             perimeter; growth between snapshots is interpolated and is{" "}
