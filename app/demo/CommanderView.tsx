@@ -481,21 +481,35 @@ export function CommanderView() {
         sitting in a red band looks like a contradiction when in fact the two
         marks are answering questions about two different people.
       */
-      const dot = isSelected
-        ? `<div style="
-             width:20px;height:20px;border-radius:50%;
-             background:${colour};border:4px solid #FFFFFF;
-             box-shadow:0 0 12px ${colour};
-           "></div>`
-        : `<div style="
-             width:13px;height:13px;border-radius:50%;
-             background:rgba(5,6,15,0.55);border:3px solid ${colour};
-           "></div>`;
+      /*
+        THE DOT MUST SIT ON THE ANCHOR POINT.
+
+        Previously the dot and its label were a flex row carrying
+        `translate(-50%,-50%)`, which centres the WHOLE ROW on the marker's
+        coordinate — so the true position was somewhere in the middle of the
+        label text and the dot was drawn roughly half the label's width to the
+        left. At the zoom the zones are read at, that offset is several hundred
+        metres: enough to show a firefighter standing safely in the caution band
+        as though they were inside the fire, with a CAUTION chip that then
+        looked like a bug in the engine.
+
+        The element is now a zero-size origin. The dot is absolutely positioned
+        and centred on it, and the label hangs off to the right where it cannot
+        drag the anchor around.
+      */
+      const size = isSelected ? 20 : 13;
+      const dotStyle = isSelected
+        ? `background:${colour};border:4px solid #FFFFFF;box-shadow:0 0 12px ${colour};`
+        : `background:rgba(5,6,15,0.55);border:3px solid ${colour};`;
 
       marker.getElement().innerHTML = `
-        <div style="display:flex;align-items:center;gap:5px;transform:translate(-50%,-50%)">
-          ${dot}
+        <div style="position:relative;width:0;height:0">
           <div style="
+            position:absolute;left:0;top:0;transform:translate(-50%,-50%);
+            width:${size}px;height:${size}px;border-radius:50%;${dotStyle}
+          "></div>
+          <div style="
+            position:absolute;left:${size / 2 + 5}px;top:0;transform:translateY(-50%);
             background:rgba(5,6,15,${isSelected ? "0.92" : "0.78"});
             padding:2px 5px;border-radius:3px;
             border-left:3px solid ${colour};
