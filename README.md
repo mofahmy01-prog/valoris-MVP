@@ -12,16 +12,6 @@ conditions should produce *different* risk scores, because one is 28 and fit and
 the other is 54 with asthma and hypertension. Generic thresholds are what already
 exists, and what fails people.
 
-## What this is not
-
-Not a medical device. Not clinically validated. Not an autonomous system. Not for
-operational use. No external body — including the ADA or the British Thoracic
-Society — has reviewed, endorsed or validated this model. Published guidance may
-inform an individual threshold; it does not validate Valoris.
-
-Every threshold ships as `illustrative` / `unreviewed` and stays that way until an
-occupational physician signs off. See [docs/CLINICAL_ASSUMPTIONS.md](docs/CLINICAL_ASSUMPTIONS.md).
-
 ## What Valoris does not do: model fire behaviour
 
 Fire spread modelling is solved. FARSITE, Phoenix RapidFire and satellite
