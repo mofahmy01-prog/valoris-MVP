@@ -41,8 +41,10 @@ const WORLD_BOX: number[][] = [
 
 /** Recon drones and their footprints — deliberately not a band colour. */
 const RECON_COLOUR = "#4FD8E8";
-/** Wall-clock flight time for a dispatched response drone. */
+/** Wall-clock flight time for a dispatched response drone, base to casualty. */
 const RESPONSE_FLIGHT_MS = 10_000;
+/** Wall-clock time for the escort leg, casualty to their own safe contour. */
+const ESCORT_MS = 10_000;
 const RESPONSE_COLOUR = "#B98CFF";
 
 const ZONE_COLOUR = {
@@ -97,10 +99,22 @@ type Drone = {
 type Dispatch = {
   id: string;
   targetCallsign: string;
-  targetLat: number;
-  targetLng: number;
+  /** Where the crew member stood when the drone was launched. */
+  fromLat: number;
+  fromLng: number;
+  /**
+   * Where they are being taken: the nearest point beyond THEIR OWN safe
+   * contour. Different for every firefighter, which is the point.
+   */
+  toLat: number;
+  toLng: number;
   /** Wall clock, not timeline clock — the flight is an animation. */
   dispatchedAtWallMs: number;
+  /**
+   * Set once the engine reports this firefighter SAFE, which ends the escort
+   * wherever they happen to be standing.
+   */
+  arrived?: boolean;
 };
 
 type Scene = {
@@ -168,6 +182,42 @@ function circleRing(lat: number, lng: number, radiusM: number, points = 64): num
     ring.push([lng + (Math.cos(a) * radiusM) / mPerDegLng, lat + (Math.sin(a) * radiusM) / 110_540]);
   }
   return ring;
+}
+
+/**
+ * Where this firefighter has to get to in order to be clear — measured against
+ * their own safe boundary, not a shared muster point.
+ *
+ * Straight out along their bearing from the ignition point, to the fire edge on
+ * that bearing plus their personal safe offset plus a small margin. ALPHA-1
+ * clears a few hundred metres out; BRAVO-2 has to go the best part of a
+ * kilometre. Same fire, same extraction, two different destinations.
+ */
+function extractionPointFor(
+  member: { lat: number; lng: number; cautionOffsetM: number | null },
+  geo: Geo,
+  perimeterRadii: number[],
+  maxOffsetM: number,
+): { lat: number; lng: number } {
+  const eastM = (member.lng - geo.originLng) * geo.mPerDegLng;
+  const northM = (member.lat - geo.originLat) * geo.mPerDegLat;
+
+  let angle = Math.atan2(eastM, northM);
+  if (angle < 0) angle += Math.PI * 2;
+
+  const exact = (angle / (Math.PI * 2)) * perimeterRadii.length;
+  const i = Math.floor(exact) % perimeterRadii.length;
+  const j = (i + 1) % perimeterRadii.length;
+  const f = exact - Math.floor(exact);
+  const edge = (perimeterRadii[i] as number) * (1 - f) + (perimeterRadii[j] as number) * f;
+
+  // 150 m of margin so they finish comfortably outside the line, not on it.
+  const r = edge + (member.cautionOffsetM ?? maxOffsetM) + 150;
+
+  return {
+    lat: geo.originLat + (Math.cos(angle) * r) / geo.mPerDegLat,
+    lng: geo.originLng + (Math.sin(angle) * r) / geo.mPerDegLng,
+  };
 }
 
 function polygon(coordinates: number[][][]): GeoJSON.Feature {
@@ -240,32 +290,145 @@ export function CommanderView() {
       const now = Date.now();
       setWallMs(now);
       const allLanded = dispatches.every(
-        (d) => now - d.dispatchedAtWallMs >= RESPONSE_FLIGHT_MS,
+        (d) =>
+          d.arrived === true ||
+          now - d.dispatchedAtWallMs >= RESPONSE_FLIGHT_MS + ESCORT_MS,
       );
       if (allLanded) clearInterval(id);
     }, 100);
     return () => clearInterval(id);
   }, [dispatches]);
 
-  /** Response drones, interpolated from base to target on the wall clock. */
-  const responseDrones = useMemo<Drone[]>(() => {
+  /**
+   * Response drones as a two-leg mission on the wall clock.
+   *
+   *   INBOUND   base → where the crew member stood when dispatched
+   *   ESCORTING that crew member → the point beyond their own safe contour
+   *   CLEAR     standing off at the destination
+   */
+  const responseDrones = useMemo<(Drone & { phase: string })[]>(() => {
     const base = scene?.droneBase;
     if (base === undefined) return [];
+
     return dispatches.map((d) => {
       const elapsed = wallMs - d.dispatchedAtWallMs;
-      const progress = Math.max(0, Math.min(1, elapsed / RESPONSE_FLIGHT_MS));
+
+      if (elapsed < RESPONSE_FLIGHT_MS) {
+        const progress = Math.max(0, elapsed / RESPONSE_FLIGHT_MS);
+        return {
+          id: d.id,
+          kind: "response" as const,
+          lat: base.lat + (d.fromLat - base.lat) * progress,
+          lng: base.lng + (d.fromLng - base.lng) * progress,
+          status: "en_route" as const,
+          coverageRadiusM: null,
+          assignedTo: d.targetCallsign,
+          etaSec: Math.ceil((RESPONSE_FLIGHT_MS - elapsed) / 1000),
+          phase: "INBOUND",
+        };
+      }
+
+      if (d.arrived === true) {
+        return {
+          id: d.id,
+          kind: "response" as const,
+          lat: d.toLat,
+          lng: d.toLng,
+          status: "arrived" as const,
+          coverageRadiusM: null,
+          assignedTo: d.targetCallsign,
+          etaSec: 0,
+          phase: "CLEAR",
+        };
+      }
+
+      const escortProgress = Math.min(1, (elapsed - RESPONSE_FLIGHT_MS) / ESCORT_MS);
       return {
         id: d.id,
         kind: "response" as const,
-        lat: base.lat + (d.targetLat - base.lat) * progress,
-        lng: base.lng + (d.targetLng - base.lng) * progress,
-        status: progress >= 1 ? ("arrived" as const) : ("en_route" as const),
+        lat: d.fromLat + (d.toLat - d.fromLat) * escortProgress,
+        lng: d.fromLng + (d.toLng - d.fromLng) * escortProgress,
+        status: escortProgress >= 1 ? ("arrived" as const) : ("en_route" as const),
         coverageRadiusM: null,
         assignedTo: d.targetCallsign,
-        etaSec: progress >= 1 ? 0 : Math.ceil((RESPONSE_FLIGHT_MS - elapsed) / 1000),
+        etaSec:
+          escortProgress >= 1
+            ? 0
+            : Math.ceil((RESPONSE_FLIGHT_MS + ESCORT_MS - elapsed) / 1000),
+        phase: escortProgress >= 1 ? "CLEAR" : "ESCORTING",
       };
     });
   }, [dispatches, wallMs, scene?.droneBase]);
+
+  /*
+    Walk the escorted crew member out, committing their position to the scene.
+
+    Throttled rather than run every animation frame: each commit re-evaluates
+    the real engine at the new position, which is what makes the zone chip step
+    DANGER → CAUTION → SAFE as they clear their own contour. Doing that eight
+    times over the escort is affordable and legible; doing it a hundred times
+    would just queue requests behind each other.
+  */
+  const lastCommitRef = useRef(0);
+  useEffect(() => {
+    if (scene === null || dispatches.length === 0) return;
+    if (wallMs - lastCommitRef.current < 1_200) return;
+
+    const escorting = dispatches.filter((d) => {
+      if (d.arrived === true) return false;
+      const elapsed = wallMs - d.dispatchedAtWallMs;
+      return elapsed >= RESPONSE_FLIGHT_MS && elapsed <= RESPONSE_FLIGHT_MS + ESCORT_MS + 400;
+    });
+    if (escorting.length === 0) return;
+
+    /*
+      Stop the escort the moment the engine says they are clear.
+
+      The destination is computed at dispatch, when the casualty is usually deep
+      inside the fire and their required standoff is at its largest. That
+      standoff shrinks as they get out and their heart rate settles, so running
+      the full leg overshot badly — one crew member reached SAFE at 906 m and
+      was then walked on to 3603 m, out of recon coverage, where the band fell
+      back to UNKNOWN. Rescued into a worse reading.
+
+      So the target is a direction, not a contract. Clear is clear.
+    */
+    const nowSafe = escorting.filter((d) => {
+      if (d.arrived === true) return false;
+      return crewRef.current.find((c) => c.callsign === d.targetCallsign)?.zone === "SAFE";
+    });
+
+    if (nowSafe.length > 0) {
+      setDispatches((current) =>
+        current.map((d) => {
+          if (!nowSafe.some((n) => n.id === d.id)) return d;
+          const member = crewRef.current.find((c) => c.callsign === d.targetCallsign);
+          return member === undefined
+            ? d
+            : { ...d, arrived: true, toLat: member.lat, toLng: member.lng };
+        }),
+      );
+    }
+
+    lastCommitRef.current = wallMs;
+    setPlacements((current) => {
+      const basePositions =
+        current ?? crewRef.current.map((c) => ({ callsign: c.callsign, lat: c.lat, lng: c.lng }));
+      return basePositions.map((p) => {
+        const d = escorting.find((x) => x.targetCallsign === p.callsign);
+        if (d === undefined) return p;
+        const progress = Math.min(
+          1,
+          (wallMs - d.dispatchedAtWallMs - RESPONSE_FLIGHT_MS) / ESCORT_MS,
+        );
+        return {
+          ...p,
+          lat: d.fromLat + (d.toLat - d.fromLat) * progress,
+          lng: d.fromLng + (d.toLng - d.fromLng) * progress,
+        };
+      });
+    });
+  }, [wallMs, dispatches, scene]);
 
   /* --- Fetch the scene ---------------------------------------------------- */
   const load = useCallback(
@@ -674,11 +837,12 @@ export function CommanderView() {
 
       const colour = drone.kind === "recon" ? RECON_COLOUR : RESPONSE_COLOUR;
       const glyph = drone.kind === "recon" ? "R" : "▲";
+      const phase = (drone as Drone & { phase?: string }).phase;
       const label =
         drone.kind === "recon"
           ? drone.id
-          : `${drone.id} → ${drone.assignedTo ?? "?"}${
-              drone.status === "en_route" ? ` ETA ${drone.etaSec}s` : " ON SCENE"
+          : `${drone.assignedTo ?? "?"} · ${phase ?? ""}${
+              drone.status === "en_route" ? ` ${drone.etaSec}s` : ""
             }`;
 
       let marker = droneMarkers.current[drone.id];
@@ -761,7 +925,7 @@ export function CommanderView() {
   const dispatchFor = (callsign: string): Dispatch | undefined =>
     dispatches.find((d) => d.targetCallsign === callsign);
 
-  const droneFor = (callsign: string): Drone | undefined =>
+  const droneFor = (callsign: string): (Drone & { phase: string }) | undefined =>
     responseDrones.find((d) => d.assignedTo === callsign);
 
   /*
@@ -772,15 +936,24 @@ export function CommanderView() {
     deciding to send the drone stays with the person accountable for it.
   */
   const dispatchTo = (member: Crew) => {
+    if (scene === null) return;
     const now = Date.now();
+    const destination = extractionPointFor(
+      member,
+      scene.geo,
+      scene.perimeterRadii,
+      scene.maxOffsetM,
+    );
     setWallMs(now);
     setDispatches((current) => [
       ...current.filter((d) => d.targetCallsign !== member.callsign),
       {
         id: `RESP-${member.callsign}`,
         targetCallsign: member.callsign,
-        targetLat: member.lat,
-        targetLng: member.lng,
+        fromLat: member.lat,
+        fromLng: member.lng,
+        toLat: destination.lat,
+        toLng: destination.lng,
         dispatchedAtWallMs: now,
       },
     ]);
@@ -964,9 +1137,14 @@ export function CommanderView() {
                         className="ml-auto rounded px-2 py-0.5 text-[9px] font-bold"
                         style={{ color: RESPONSE_COLOUR, border: `1px solid ${RESPONSE_COLOUR}` }}
                       >
-                        {droneFor(member.callsign)?.status === "en_route"
-                          ? `EN ROUTE ${droneFor(member.callsign)?.etaSec}s`
-                          : "ON SCENE"}
+                        {(() => {
+                          const d = droneFor(member.callsign);
+                          if (d === undefined) return "DISPATCHED";
+                          const phase = (d as Drone & { phase?: string }).phase;
+                          if (phase === "INBOUND") return `INBOUND ${d.etaSec}s`;
+                          if (phase === "ESCORTING") return `ESCORTING ${d.etaSec}s`;
+                          return "CLEAR";
+                        })()}
                       </span>
                     )}
                   </div>

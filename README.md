@@ -249,10 +249,27 @@ band becomes **`UNKNOWN` rather than `SAFE`** — the "low confidence can never
 produce SAFE" rule, triggered by a gap in drone coverage rather than by a broken
 sensor.
 
-**Response drones carry equipment to a named firefighter.** They launch from a
-staging area south-west of the fire at 20 m/s, and their position is interpolated
-from the dispatch time, so scrubbing back before a dispatch correctly shows the
-drone still at base.
+**Response drones escort a named firefighter out.** Two legs, ten seconds each,
+on the wall clock: *inbound* from a staging area south-west of the fire, then
+*escorting* the crew member outward until they are clear.
+
+Clear means clear **for them**. The destination is derived from that
+firefighter's own safe contour, so it is a different place for each person —
+ALPHA-1 clears a few hundred metres out, BRAVO-2 the best part of a kilometre.
+The escort stops the moment the engine reports SAFE rather than running a fixed
+distance, because the standoff a casualty needs shrinks as they get out and their
+heart rate settles. Running the full leg overshot: one crew member reached SAFE
+at 906 m and was walked on to 3603 m, outside recon coverage, where the band fell
+back to `UNKNOWN` — rescued into a worse reading.
+
+Watching the crew row during an extraction is the clearest single demonstration
+of the whole product: `DANGER` at 346 m inside the perimeter → `CAUTION` at the
+edge → `SAFE`, with the engine re-evaluating at each step against that
+individual's thresholds.
+
+They do **not** carry anyone. Casualty extraction by drone is not fielded
+capability, and claiming it would be the one thing in this demo backed by
+neither real data nor a real engine.
 
 They are dispatched **by the commander**, from a button on that crew member's
 row, and never automatically. Valoris does not withdraw anyone and does not
