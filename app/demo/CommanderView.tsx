@@ -52,6 +52,50 @@ const RECON_COLOUR = "#4FD8E8";
  * whether the rings are painted.
  */
 const SHOW_RECON_FOOTPRINTS = false;
+
+/**
+ * Basemaps, cycled by one button rather than spread across several.
+ *
+ * Terrain matters for this incident specifically: the Palisades fire ran through
+ * the Santa Monica Mountains, and slope is a large part of why it went where it
+ * did. Seeing the crew's standoff against the ridges says more than seeing it
+ * against a flat dark background.
+ *
+ * Raster opacity is held below 1 on the bright basemaps so the risk bands, which
+ * are painted over them at 0.13–0.32, stay legible. All three are key-free and
+ * attributed; the map still boots with no basemap at all and works offline.
+ */
+const BASEMAPS = {
+  dark: {
+    label: "DARK",
+    tiles: [
+      "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+      "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+      "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+    ],
+    attribution: "© OpenStreetMap contributors © CARTO",
+    opacity: 0.75,
+  },
+  terrain: {
+    label: "TERRAIN",
+    tiles: [
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}",
+    ],
+    attribution: "Tiles © Esri — Esri, DeLorme, NAVTEQ, USGS, NRCAN",
+    opacity: 0.8,
+  },
+  satellite: {
+    label: "SATELLITE",
+    tiles: [
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    ],
+    attribution: "Tiles © Esri — Maxar, Earthstar Geographics, USGS",
+    opacity: 0.78,
+  },
+} as const;
+
+type BasemapKey = keyof typeof BASEMAPS | "off";
+const BASEMAP_CYCLE: BasemapKey[] = ["dark", "terrain", "satellite", "off"];
 /** Wall-clock flight time for a dispatched response drone, base to casualty. */
 const RESPONSE_FLIGHT_MS = 10_000;
 /** Wall-clock time for the escort leg, casualty to their own safe contour. */
@@ -259,7 +303,7 @@ export function CommanderView() {
   const pending = useRef(false);
 
   const [ready, setReady] = useState(false);
-  const [basemapOn, setBasemapOn] = useState(true);
+  const [basemap, setBasemap] = useState<BasemapKey>("dark");
   const [scene, setScene] = useState<Scene | null>(null);
   const [selected, setSelected] = useState<string>("BRAVO-2");
   const [atMs, setAtMs] = useState<number | null>(null);
@@ -658,31 +702,32 @@ export function CommanderView() {
     const m = map.current;
     if (m === null || !ready) return;
 
-    const has = m.getLayer("carto") !== undefined;
-    if (basemapOn && !has) {
-      try {
-        m.addSource("carto", {
+    if (m.getLayer("basemap") !== undefined) m.removeLayer("basemap");
+    if (m.getSource("basemap") !== undefined) m.removeSource("basemap");
+    if (basemap === "off") return;
+
+    const spec = BASEMAPS[basemap];
+    try {
+      m.addSource("basemap", {
+        type: "raster",
+        tiles: [...spec.tiles],
+        tileSize: 256,
+        attribution: spec.attribution,
+      });
+      // Beneath everything of ours — the basemap is context, not content.
+      m.addLayer(
+        {
+          id: "basemap",
           type: "raster",
-          tiles: [
-            "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-            "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-            "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-          ],
-          tileSize: 256,
-          attribution: "© OpenStreetMap contributors © CARTO",
-        });
-        m.addLayer(
-          { id: "carto", type: "raster", source: "carto", paint: { "raster-opacity": 0.75 } },
-          "zone-safe-fill",
-        );
-      } catch (error) {
-        console.warn("[valoris] basemap unavailable", error);
-      }
-    } else if (!basemapOn && has) {
-      m.removeLayer("carto");
-      if (m.getSource("carto") !== undefined) m.removeSource("carto");
+          source: "basemap",
+          paint: { "raster-opacity": spec.opacity },
+        },
+        "zone-safe-fill",
+      );
+    } catch (error) {
+      console.warn("[valoris] basemap unavailable", error);
     }
-  }, [basemapOn, ready]);
+  }, [basemap, ready]);
 
   const selectedCrew = useMemo(
     () => scene?.crew.find((c) => c.callsign === selected) ?? null,
@@ -1024,15 +1069,21 @@ export function CommanderView() {
               WHOLE FIRE
             </button>
             <button
-              onClick={() => setBasemapOn((v) => !v)}
+              onClick={() =>
+                setBasemap((current) => {
+                  const i = BASEMAP_CYCLE.indexOf(current);
+                  return BASEMAP_CYCLE[(i + 1) % BASEMAP_CYCLE.length] as BasemapKey;
+                })
+              }
               className="rounded px-2 py-1 text-[11px] font-semibold"
               style={{
-                background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
+                background: basemap === "off" ? "rgba(5,6,15,0.85)" : "#1E2650",
                 border: `1px solid ${COLOURS.border}`,
                 color: COLOURS.text,
               }}
+              title="Cycle basemap: dark, terrain, satellite, off"
             >
-              BASEMAP {basemapOn ? "ON" : "OFF"}
+              {basemap === "off" ? "BASEMAP OFF" : BASEMAPS[basemap].label}
             </button>
           </div>
 
@@ -1072,10 +1123,24 @@ export function CommanderView() {
             scene.crew.map((member) => {
               const isSelected = member.callsign === selected;
               return (
-                <button
+                /*
+                  A div, not a button. The dispatch control lives inside this
+                  row, and a <button> inside a <button> is invalid HTML — React
+                  flagged it as a hydration error on every render. Keyboard
+                  access is preserved explicitly.
+                */
+                <div
                   key={member.callsign}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelected(member.callsign)}
-                  className="w-full px-3 py-2 text-left"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelected(member.callsign);
+                    }
+                  }}
+                  className="w-full cursor-pointer px-3 py-2 text-left"
                   style={{
                     borderBottom: `1px solid ${COLOURS.border}`,
                     background: isSelected ? "#141A38" : "transparent",
@@ -1163,7 +1228,7 @@ export function CommanderView() {
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })
           )}

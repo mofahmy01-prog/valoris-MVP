@@ -285,6 +285,29 @@ below.
 > **No drone integration exists.** No airframe, autopilot, vendor or datalink is
 > modelled. Both kinds are Tier C and labelled so in the provenance panel.
 
+## Basemaps
+
+One button cycles **DARK → TERRAIN → SATELLITE → OFF**.
+
+Terrain matters for this incident specifically. The Palisades fire ran through
+the Santa Monica Mountains, and slope is a large part of why it went where it
+did — seeing a crew's standoff against the ridges says more than seeing it
+against a flat dark background.
+
+| Mode | Source | Key required |
+|---|---|---|
+| Dark | CARTO `dark_all` | no |
+| Terrain | Esri `World_Topo_Map` | no |
+| Satellite | Esri `World_Imagery` | no |
+
+All three are attributed in the map's attribution control. Raster opacity is held
+below 1 on the bright basemaps so the risk bands, painted over them at 0.13–0.32,
+stay readable.
+
+`OFF` is a first-class option, not a fallback: the map boots with **no external
+source at all** and the fire, zones, crew and drones are drawn from our own data.
+A tile server being unreachable cannot take the operational picture down.
+
 ## Data inputs
 
 Four input groups reach `assessRisk`, defined in
