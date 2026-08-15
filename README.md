@@ -243,6 +243,11 @@ earns its place through machinery that was already there.
 It also answers a question the demo previously dodged: where was a live CO and
 PM2.5 reading at one firefighter's exact position supposed to be coming from?
 
+The footprints are **not drawn** on the map. Three overlapping 2.2 km rings in a
+fourth colour fought with the risk bands the map exists to show. Coverage is
+reported per crew member instead, by the `RECON` / `NO RECON` chip on their row.
+Flip `SHOW_RECON_FOOTPRINTS` in `CommanderView.tsx` to draw them.
+
 The effect is visible immediately. At 9 Jan, five of six crew sit under coverage
 and read `medium` confidence; CHARLIE-2 sits outside it, drops to `low`, and the
 band becomes **`UNKNOWN` rather than `SAFE`** — the "low confidence can never

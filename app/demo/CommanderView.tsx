@@ -41,6 +41,17 @@ const WORLD_BOX: number[][] = [
 
 /** Recon drones and their footprints — deliberately not a band colour. */
 const RECON_COLOUR = "#4FD8E8";
+/**
+ * Draw the recon sensor footprints on the map.
+ *
+ * Off. Three 2.2 km cyan rings overlapping the risk bands fought with the thing
+ * the map exists to show, and a fourth colour competing with red/amber/green
+ * made the picture harder to read rather than richer. Coverage is still very
+ * much live — it decides whether a firefighter's air data is current, and that
+ * is reported per crew member by the RECON / NO RECON chip. This only controls
+ * whether the rings are painted.
+ */
+const SHOW_RECON_FOOTPRINTS = false;
 /** Wall-clock flight time for a dispatched response drone, base to casualty. */
 const RESPONSE_FLIGHT_MS = 10_000;
 /** Wall-clock time for the escort leg, casualty to their own safe contour. */
@@ -829,7 +840,11 @@ export function CommanderView() {
     for (const drone of [...scene.drones, ...responseDrones]) {
       seenDrones.add(drone.id);
 
-      if (drone.kind === "recon" && drone.coverageRadiusM !== null) {
+      if (
+        SHOW_RECON_FOOTPRINTS &&
+        drone.kind === "recon" &&
+        drone.coverageRadiusM !== null
+      ) {
         reconFeatures.push(
           polygon([circleRing(drone.lat, drone.lng, drone.coverageRadiusM)]),
         );
