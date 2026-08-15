@@ -94,6 +94,20 @@ const BASEMAPS = {
   },
 } as const;
 
+/**
+ * Elevation for the 3D view.
+ *
+ * Terrarium-encoded DEM tiles, free and key-free. The Santa Monica Mountains
+ * rise roughly 900 m over the 13 km the fire crossed, which is real relief but
+ * gentle at map scale, so it is exaggerated to read at a glance. The
+ * exaggeration is a VIEWING choice and changes no distance, contour or score —
+ * every number in the app is computed on the flat local projection.
+ */
+const DEM_TILES = ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"];
+const DEM_ATTRIBUTION = "Elevation © Mapzen, USGS, SRTM";
+const TERRAIN_EXAGGERATION = 1.6;
+const PITCH_3D = 62;
+
 type BasemapKey = keyof typeof BASEMAPS | "off";
 const BASEMAP_CYCLE: BasemapKey[] = ["dark", "terrain", "satellite", "off"];
 /** Wall-clock flight time for a dispatched response drone, base to casualty. */
@@ -135,6 +149,9 @@ type Crew = {
   cohbPct: number;
   timeOnTaskMin: number;
   reconCoverage: boolean;
+  minutesToCaution: number | null;
+  minutesToDanger: number | null;
+  forecastHorizonMin: number;
   ageYears: number;
   fitness: string;
   conditions: string[];
@@ -279,6 +296,14 @@ function polygon(coordinates: number[][][]): GeoJSON.Feature {
   return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates } };
 }
 
+/** Minutes as a commander would say them: "45 min", "3 h 15". */
+function formatEta(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m}`;
+}
+
 function formatUtc(ms: number): string {
   const d = new Date(ms);
   const day = d.toLocaleDateString("en-GB", {
@@ -304,6 +329,7 @@ export function CommanderView() {
 
   const [ready, setReady] = useState(false);
   const [basemap, setBasemap] = useState<BasemapKey>("dark");
+  const [threeD, setThreeD] = useState(false);
   const [scene, setScene] = useState<Scene | null>(null);
   const [selected, setSelected] = useState<string>("BRAVO-2");
   const [atMs, setAtMs] = useState<number | null>(null);
@@ -729,6 +755,57 @@ export function CommanderView() {
     }
   }, [basemap, ready]);
 
+  /* --- 3D terrain --------------------------------------------------------- */
+  useEffect(() => {
+    const m = map.current;
+    if (m === null || !ready) return;
+
+    try {
+      if (threeD) {
+        if (m.getSource("dem") === undefined) {
+          m.addSource("dem", {
+            type: "raster-dem",
+            tiles: DEM_TILES,
+            tileSize: 256,
+            encoding: "terrarium",
+            maxzoom: 14,
+            attribution: DEM_ATTRIBUTION,
+          });
+        }
+
+        // Hillshade as well as elevation, so the relief still reads when the
+        // basemap is off and there is nothing draped over the surface.
+        if (m.getLayer("hillshade") === undefined) {
+          m.addLayer(
+            {
+              id: "hillshade",
+              type: "hillshade",
+              source: "dem",
+              paint: { "hillshade-exaggeration": 0.5 },
+            },
+            "zone-safe-fill",
+          );
+        }
+
+        m.setTerrain({ source: "dem", exaggeration: TERRAIN_EXAGGERATION });
+        m.setSky({
+          "sky-color": "#0B1026",
+          "horizon-color": "#2A1810",
+          "fog-color": "#1A0E0A",
+          "fog-ground-blend": 0.6,
+          "horizon-fog-blend": 0.4,
+        });
+        m.easeTo({ pitch: PITCH_3D, duration: 900 });
+      } else {
+        m.setTerrain(null);
+        if (m.getLayer("hillshade") !== undefined) m.removeLayer("hillshade");
+        m.easeTo({ pitch: 0, bearing: 0, duration: 700 });
+      }
+    } catch (error) {
+      console.warn("[valoris] 3D terrain unavailable", error);
+    }
+  }, [threeD, ready]);
+
   const selectedCrew = useMemo(
     () => scene?.crew.find((c) => c.callsign === selected) ?? null,
     [scene, selected],
@@ -1069,6 +1146,18 @@ export function CommanderView() {
               WHOLE FIRE
             </button>
             <button
+              onClick={() => setThreeD((v) => !v)}
+              className="rounded px-2 py-1 text-[11px] font-bold"
+              style={{
+                background: threeD ? "#1E2650" : "rgba(5,6,15,0.85)",
+                border: `1px solid ${threeD ? COLOURS.text : COLOURS.border}`,
+                color: COLOURS.text,
+              }}
+              title="Tilt the map and drape it over real elevation"
+            >
+              3D
+            </button>
+            <button
               onClick={() =>
                 setBasemap((current) => {
                   const i = BASEMAP_CYCLE.indexOf(current);
@@ -1178,6 +1267,29 @@ export function CommanderView() {
                     HR {member.hrBpm} · SpO2 {member.spo2Pct}% · core {member.coreTempC} °C ·
                     COHb {member.cohbPct}%
                   </div>
+
+                  {/*
+                    Projection. Only the fire is advanced, so this reads "if the
+                    fire keeps growing and they do not move" — the question a
+                    commander asks before deciding a crew can hold a line.
+                  */}
+                  {(member.minutesToDanger !== null || member.minutesToCaution !== null) && (
+                    <div className="mt-1 font-mono text-[10px]">
+                      {member.minutesToDanger !== null && member.minutesToDanger > 0 ? (
+                        <span style={{ color: ZONE_COLOUR.DANGER }}>
+                          DANGER in {formatEta(member.minutesToDanger)} if they hold
+                        </span>
+                      ) : member.minutesToCaution !== null && member.minutesToCaution > 0 ? (
+                        <span style={{ color: ZONE_COLOUR.CAUTION }}>
+                          CAUTION in {formatEta(member.minutesToCaution)} if they hold
+                        </span>
+                      ) : (
+                        <span style={{ color: COLOURS.muted }}>
+                          already past this threshold
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-1 flex items-center gap-2">
                     <span

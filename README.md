@@ -72,7 +72,7 @@ Two front ends:
   path that pushes observations through `POST /observations` with validation,
   provenance and the audit log.
 
-Not built: forecasting, recommendation *generation*, post-incident report. The
+Not built: recommendation *generation*, post-incident report. The
 recommendation action routes exist and enforce the reason rule; nothing creates
 recommendations yet.
 
@@ -274,6 +274,21 @@ below.
 
 > **No drone integration exists.** No airframe, autopilot, vendor or datalink is
 > modelled. Both kinds are Tier C and labelled so in the provenance panel.
+
+## Projection
+
+Each crew row carries a time-to-threshold: *"DANGER in 2 h 15 if they hold"*.
+
+The scene is a pure function of time, so a future moment costs no more to
+evaluate than the present one — this is the thing the scrubbable design buys
+that a live tick loop cannot. The projection advances **only the fire**, holding
+position, derived physiology and work cycle at today's values, so it answers
+"the fire keeps growing and this person does not move". It is not a prediction
+of their physiology hours from now.
+
+Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
+an `UNKNOWN` state** — if the engine does not currently know where someone
+stands, projecting forward would dress a gap up as foresight.
 
 ## Basemaps
 

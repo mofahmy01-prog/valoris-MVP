@@ -75,6 +75,16 @@ const STEP_MINUTES = 5;
 export const MAX_OFFSET_M = 4000;
 const OFFSET_STEPS = 80;
 
+/**
+ * How far ahead the projection looks, and at what resolution.
+ *
+ * Twelve hours in fifteen-minute steps. The scene is a pure function of time, so
+ * a future moment costs no more to evaluate than the present one — this is the
+ * one thing the scrubbable design buys that a live tick loop cannot.
+ */
+const FORECAST_HORIZON_MIN = 720;
+const FORECAST_STEP_MIN = 15;
+
 export type CrewPlacement = { callsign: string; lat: number; lng: number };
 
 export type Atmosphere = {
@@ -364,6 +374,14 @@ export type CrewAssessment = {
   timeOnTaskMin: number;
   /** True when a recon drone is refreshing the air picture over this position. */
   reconCoverage: boolean;
+  /**
+   * Minutes until the advancing fire puts this firefighter into each band, if
+   * they hold their current position. Null when it does not happen inside the
+   * horizon; zero when they are already there.
+   */
+  minutesToCaution: number | null;
+  minutesToDanger: number | null;
+  forecastHorizonMin: number;
 };
 
 /**
@@ -463,6 +481,88 @@ export function assessCrewMember(
     }
   }
 
+  /*
+    PROJECTION — when does the fire reach them if they stay put?
+
+    Only the FIRE is advanced. Their derived physiology and their position are
+    held at today's values, so this answers "the fire keeps growing and this
+    person does not move", which is the question a commander is asking when
+    deciding whether a crew can hold a line. It is not a prediction of their
+    physiology hours from now, and their work cycle is not advanced either.
+
+    Cheap because the scene is a pure function of time: each sample is one
+    engine call against a recomputed separation and atmosphere, with no
+    physiology re-walk and no contour sweep.
+  */
+  let minutesToCaution: number | null = null;
+  let minutesToDanger: number | null = null;
+
+  /*
+    No projection from an UNKNOWN state.
+
+    UNKNOWN means the engine does not currently know where this firefighter
+    stands, usually because a channel has gone stale. Projecting forward from a
+    verdict we do not have would dress a gap up as foresight, so the forecast is
+    withheld and the caller shows nothing rather than a confident zero.
+  */
+  const forecastable = here.band !== "UNKNOWN";
+  const severityNow = BAND_SEVERITY[here.band];
+  if (forecastable && severityNow > BAND_SEVERITY.SAFE) minutesToCaution = 0;
+  if (forecastable && severityNow > BAND_SEVERITY.CAUTION) minutesToDanger = 0;
+
+  for (
+    let minute = forecastable ? FORECAST_STEP_MIN : FORECAST_HORIZON_MIN + 1;
+    minute <= FORECAST_HORIZON_MIN &&
+    (minutesToCaution === null || minutesToDanger === null);
+    minute += FORECAST_STEP_MIN
+  ) {
+    const futureMs = atMs + minute * 60_000;
+    const futureRadii = perimeterRadiiAt(futureMs);
+    const futureFireRadiusM = Math.max(...futureRadii);
+    const futureSeparationM = separationFromFire(futureMs, eastM, northM);
+    const offset = Math.max(0, futureSeparationM);
+
+    const air = atmosphereAt(offset, futureFireRadiusM);
+    const exertion = exertionAt(
+      profile.restingHrBpm ?? 60,
+      profile.spo2BaselinePct ?? 97,
+      timeOnTaskMin,
+      offset,
+    );
+
+    const band = assessRisk(
+      profile,
+      vitalsFrom(
+        profile,
+        exertion,
+        coreTempC,
+        coreTempUpdatedAtMs,
+        fatiguePct,
+        timeOnTaskMin,
+        atMs,
+      ),
+      environmentFrom(air, atMs, reconCoverage),
+      positionFrom(
+        placement.lat,
+        placement.lng,
+        futureSeparationM,
+        exertion.scbaPressurePct,
+        timeOnTaskMin,
+        atMs,
+      ),
+      DEFAULT_RISK_CONFIG,
+      atMs,
+    ).band;
+
+    const severity = BAND_SEVERITY[band];
+    if (minutesToCaution === null && severity > BAND_SEVERITY.SAFE) {
+      minutesToCaution = minute;
+    }
+    if (minutesToDanger === null && severity > BAND_SEVERITY.CAUTION) {
+      minutesToDanger = minute;
+    }
+  }
+
   const zone: CrewAssessment["zone"] =
     here.band === "UNKNOWN"
       ? "UNKNOWN"
@@ -500,5 +600,8 @@ export function assessCrewMember(
     cohbPct: Math.round((physiology?.cohbPct ?? 0) * 100) / 100,
     timeOnTaskMin,
     reconCoverage,
+    minutesToCaution,
+    minutesToDanger,
+    forecastHorizonMin: FORECAST_HORIZON_MIN,
   };
 }
