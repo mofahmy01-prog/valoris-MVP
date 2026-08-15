@@ -1159,13 +1159,22 @@ export function CommanderView() {
       className="flex min-h-screen flex-col"
       style={{ background: COLOURS.background, color: COLOURS.text }}
     >
+      {/*
+        Incident header. The orange operational-use banner that used to sit here
+        was removed at the author's request; what it said is still disclosed in
+        the "What here is real?" panel, which lists every component as real,
+        unverified or synthetic.
+      */}
       <div
-        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm font-bold"
-        style={{ background: "#F0A020", color: "#05060F" }}
+        className="flex flex-wrap items-center justify-between gap-2 px-4 py-2"
+        style={{ background: COLOURS.panel, borderBottom: `1px solid ${COLOURS.border}` }}
       >
-        <span>SIMULATION MODE — NOT FOR OPERATIONAL USE</span>
-        <span className="font-mono text-xs">
-          PALISADES FIRE · JAN 2025 · {scene === null ? "loading…" : `${scene.acres.toLocaleString()} acres`}
+        <span className="text-sm font-bold tracking-wide" style={{ color: COLOURS.text }}>
+          VALORIS
+        </span>
+        <span className="font-mono text-xs" style={{ color: COLOURS.muted }}>
+          PALISADES FIRE · JAN 2025 ·{" "}
+          {scene === null ? "loading…" : `${scene.acres.toLocaleString()} acres`}
         </span>
       </div>
 
