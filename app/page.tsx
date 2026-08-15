@@ -1,5 +1,5 @@
-import { DemoClient } from "./demo/DemoClient";
+import { CommanderView } from "./demo/CommanderView";
 
 export default function Home() {
-  return <DemoClient />;
+  return <CommanderView />;
 }
