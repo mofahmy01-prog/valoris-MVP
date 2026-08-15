@@ -34,12 +34,7 @@ import {
   TIMELINE_START_MS,
   toLngLat,
 } from "@/lib/sim/palisades";
-import {
-  baseAt,
-  reconDronesAt,
-  responseDronesAt,
-  type DroneDispatch,
-} from "@/lib/sim/drones";
+import { baseAt, reconDronesAt, RESPONSE_FLIGHT_MS } from "@/lib/sim/drones";
 import { assessCrewMember, MAX_OFFSET_M, type CrewPlacement } from "@/lib/sim/scene";
 
 export const dynamic = "force-dynamic";
@@ -55,23 +50,6 @@ const bodySchema = z.object({
       }),
     )
     .max(50)
-    .optional(),
-  /**
-   * Response drones the commander has launched. Carried in the request like
-   * everything else, so the scene stays a pure function of its inputs and
-   * scrubbing back before a dispatch correctly shows the drone still at base.
-   */
-  dispatches: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        targetCallsign: z.string().min(1),
-        targetLat: z.number().gte(-90).lte(90),
-        targetLng: z.number().gte(-180).lte(180),
-        dispatchedAtMs: z.number().int().finite(),
-      }),
-    )
-    .max(20)
     .optional(),
 });
 
@@ -143,8 +121,6 @@ export async function POST(request: Request) {
       : defaultPlacements();
 
   const recon = reconDronesAt(atMs);
-  const dispatches: DroneDispatch[] = parsed.data.dispatches ?? [];
-  const response = responseDronesAt(atMs, dispatches);
   const [baseLng, baseLat] = baseAt(atMs);
 
   const crew = [];
@@ -198,8 +174,10 @@ export async function POST(request: Request) {
      * launched. Recon footprints are what decide whether a firefighter's air
      * data is current; see the provenance note below.
      */
-    drones: [...recon, ...response],
+    drones: recon,
     droneBase: { lat: baseLat, lng: baseLng },
+    /** Client-side flight duration for a commander-dispatched response drone. */
+    responseFlightMs: RESPONSE_FLIGHT_MS,
 
     /**
      * Facts lifted verbatim from the interagency incident record, stored in

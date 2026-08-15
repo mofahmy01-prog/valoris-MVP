@@ -41,6 +41,8 @@ const WORLD_BOX: number[][] = [
 
 /** Recon drones and their footprints — deliberately not a band colour. */
 const RECON_COLOUR = "#4FD8E8";
+/** Wall-clock flight time for a dispatched response drone. */
+const RESPONSE_FLIGHT_MS = 10_000;
 const RESPONSE_COLOUR = "#B98CFF";
 
 const ZONE_COLOUR = {
@@ -97,7 +99,8 @@ type Dispatch = {
   targetCallsign: string;
   targetLat: number;
   targetLng: number;
-  dispatchedAtMs: number;
+  /** Wall clock, not timeline clock — the flight is an animation. */
+  dispatchedAtWallMs: number;
 };
 
 type Scene = {
@@ -208,6 +211,16 @@ export function CommanderView() {
   const dispatchesRef = useRef<Dispatch[]>([]);
   dispatchesRef.current = dispatches;
 
+  /**
+   * Wall clock, ticked only while a response drone is airborne.
+   *
+   * The flight cannot be driven by the timeline: the timeline is scrubbed, not
+   * played, so on a paused timeline a drone dispatched at 14:00 would sit at
+   * base forever. Ticking stops as soon as the last drone lands, so an idle map
+   * is not re-rendering ten times a second for nothing.
+   */
+  const [wallMs, setWallMs] = useState<number>(() => Date.now());
+
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   /**
@@ -220,6 +233,39 @@ export function CommanderView() {
    */
   const crewRef = useRef<Crew[]>([]);
   crewRef.current = scene?.crew ?? crewRef.current;
+
+  useEffect(() => {
+    if (dispatches.length === 0) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setWallMs(now);
+      const allLanded = dispatches.every(
+        (d) => now - d.dispatchedAtWallMs >= RESPONSE_FLIGHT_MS,
+      );
+      if (allLanded) clearInterval(id);
+    }, 100);
+    return () => clearInterval(id);
+  }, [dispatches]);
+
+  /** Response drones, interpolated from base to target on the wall clock. */
+  const responseDrones = useMemo<Drone[]>(() => {
+    const base = scene?.droneBase;
+    if (base === undefined) return [];
+    return dispatches.map((d) => {
+      const elapsed = wallMs - d.dispatchedAtWallMs;
+      const progress = Math.max(0, Math.min(1, elapsed / RESPONSE_FLIGHT_MS));
+      return {
+        id: d.id,
+        kind: "response" as const,
+        lat: base.lat + (d.targetLat - base.lat) * progress,
+        lng: base.lng + (d.targetLng - base.lng) * progress,
+        status: progress >= 1 ? ("arrived" as const) : ("en_route" as const),
+        coverageRadiusM: null,
+        assignedTo: d.targetCallsign,
+        etaSec: progress >= 1 ? 0 : Math.ceil((RESPONSE_FLIGHT_MS - elapsed) / 1000),
+      };
+    });
+  }, [dispatches, wallMs, scene?.droneBase]);
 
   /* --- Fetch the scene ---------------------------------------------------- */
   const load = useCallback(
@@ -234,7 +280,6 @@ export function CommanderView() {
           atMs: whenMs ?? Date.parse("2025-01-08T14:00:00Z"),
         };
         if (crew !== null) body.crew = crew;
-        if (dispatchesRef.current.length > 0) body.dispatches = dispatchesRef.current;
 
         const response = await fetch("/api/demo/scene", {
           method: "POST",
@@ -263,7 +308,7 @@ export function CommanderView() {
   // list here: this re-runs only when the time or the crew placements change.
   useEffect(() => {
     void load(atMs, placements);
-  }, [atMs, placements, dispatches, load]);
+  }, [atMs, placements, load]);
 
   /* --- Create the map once ------------------------------------------------ */
   useEffect(() => {
@@ -618,7 +663,7 @@ export function CommanderView() {
     const reconFeatures: GeoJSON.Feature[] = [];
     const seenDrones = new Set<string>();
 
-    for (const drone of scene.drones) {
+    for (const drone of [...scene.drones, ...responseDrones]) {
       seenDrones.add(drone.id);
 
       if (drone.kind === "recon" && drone.coverageRadiusM !== null) {
@@ -674,7 +719,7 @@ export function CommanderView() {
 
     const reconSource = m.getSource("recon") as maplibregl.GeoJSONSource | undefined;
     reconSource?.setData({ type: "FeatureCollection", features: reconFeatures });
-  }, [scene, ready, selected, selectedCrew]);
+  }, [scene, ready, selected, selectedCrew, responseDrones]);
 
   /**
    * Frame the selected firefighter closely enough to read their three bands.
@@ -717,7 +762,7 @@ export function CommanderView() {
     dispatches.find((d) => d.targetCallsign === callsign);
 
   const droneFor = (callsign: string): Drone | undefined =>
-    scene?.drones.find((d) => d.kind === "response" && d.assignedTo === callsign);
+    responseDrones.find((d) => d.assignedTo === callsign);
 
   /*
     Dispatch is a COMMANDER ACTION and never automatic.
@@ -727,7 +772,8 @@ export function CommanderView() {
     deciding to send the drone stays with the person accountable for it.
   */
   const dispatchTo = (member: Crew) => {
-    const now = atMs ?? scene?.atMs ?? Date.now();
+    const now = Date.now();
+    setWallMs(now);
     setDispatches((current) => [
       ...current.filter((d) => d.targetCallsign !== member.callsign),
       {
@@ -735,7 +781,7 @@ export function CommanderView() {
         targetCallsign: member.callsign,
         targetLat: member.lat,
         targetLng: member.lng,
-        dispatchedAtMs: now,
+        dispatchedAtWallMs: now,
       },
     ]);
   };

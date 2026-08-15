@@ -29,8 +29,17 @@ import { perimeterRadiiAt, PROFILE_BEARINGS, toLngLat, type LngLat } from "./pal
 
 export type DroneKind = "recon" | "response";
 
-/** Ground speed of a response drone, metres per second (~72 km/h). */
-const RESPONSE_SPEED_MS = 20;
+/**
+ * How long a response drone takes to reach its target, wall-clock milliseconds.
+ *
+ * A fixed duration rather than a ground speed. The honest version — distance
+ * divided by 20 m/s — put arrival several minutes out, and worse, it was
+ * measured against the TIMELINE clock, which only advances when the commander
+ * scrubs. A drone dispatched on a paused timeline never arrived at all. Flight
+ * is a wall-clock animation now, and this is the demo's tempo, not an
+ * aerodynamic claim.
+ */
+export const RESPONSE_FLIGHT_MS = 10_000;
 
 /**
  * Recon orbits, defined relative to the fire rather than as fixed coordinates.
@@ -137,39 +146,13 @@ export function hasReconCoverage(
 }
 
 /**
- * Response drones in flight, positioned by how long they have been airborne.
+ * Response drones are deliberately NOT computed here.
  *
- * Scrubbing back before a dispatch returns nothing for it, so the timeline stays
- * honest: a drone cannot be en route before it was sent.
+ * They carry equipment; they do not change anyone's risk score, so they have no
+ * business inside the scene evaluation, which costs hundreds of engine
+ * evaluations per request and cannot be polled at animation rate. Their flight
+ * is a ten-second wall-clock animation owned by the client, interpolating
+ * between `baseAt()` and the target using `RESPONSE_FLIGHT_MS`.
+ *
+ * Recon stays server-side because it genuinely does change the score.
  */
-export function responseDronesAt(atMs: number, dispatches: DroneDispatch[]): DroneState[] {
-  const [baseLng, baseLat] = baseAt(atMs);
-  const out: DroneState[] = [];
-
-  for (const dispatch of dispatches) {
-    const elapsedSec = (atMs - dispatch.dispatchedAtMs) / 1_000;
-    if (elapsedSec < 0) continue;
-
-    const distanceM = metresBetween(
-      baseLat,
-      baseLng,
-      dispatch.targetLat,
-      dispatch.targetLng,
-    );
-    const flightSec = distanceM / RESPONSE_SPEED_MS;
-    const progress = flightSec === 0 ? 1 : Math.min(1, elapsedSec / flightSec);
-
-    out.push({
-      id: dispatch.id,
-      kind: "response",
-      lat: baseLat + (dispatch.targetLat - baseLat) * progress,
-      lng: baseLng + (dispatch.targetLng - baseLng) * progress,
-      status: progress >= 1 ? "arrived" : "en_route",
-      coverageRadiusM: null,
-      assignedTo: dispatch.targetCallsign,
-      etaSec: progress >= 1 ? 0 : Math.round(flightSec - elapsedSec),
-    });
-  }
-
-  return out;
-}
