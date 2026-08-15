@@ -11,7 +11,7 @@
  */
 
 import maplibregl from "maplibre-gl";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { asBand, BAND_COLOUR, COLOURS, presentation } from "./theme";
 import type { Snapshot } from "./types";
@@ -50,7 +50,13 @@ export function IncidentMap({
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Record<string, maplibregl.Marker>>({});
-  const ready = useRef(false);
+  /**
+   * STATE, not a ref. A ref assigned inside `on("load")` never notifies React,
+   * so the effect that draws the fire and the crew never re-ran once the map
+   * became ready — which is exactly why no markers appeared.
+   */
+  const [ready, setReady] = useState(false);
+  const [basemapOn, setBasemapOn] = useState(false);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
 
@@ -60,23 +66,27 @@ export function IncidentMap({
 
     const m = new maplibregl.Map({
       container: container.current,
+      /*
+        NO EXTERNAL SOURCES IN THE INITIAL STYLE.
+
+        A style whose only source is a remote tile server makes the whole map
+        contingent on the network: if tiles cannot be reached the style may
+        never finish loading, `load` never fires, and nothing renders — not the
+        fire, not the crew, none of which need the network at all.
+
+        So the map boots self-contained and always works offline. The basemap is
+        added afterwards, at runtime, and its failure cannot take the
+        operational picture down with it. Toggle it with the BASEMAP button.
+      */
       style: {
         version: 8,
-        sources: {
-          carto: {
-            type: "raster",
-            tiles: [
-              "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-              "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-              "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-            ],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors © CARTO",
-          },
-        },
+        sources: {},
         layers: [
-          { id: "bg", type: "background", paint: { "background-color": COLOURS.background } },
-          { id: "carto", type: "raster", source: "carto", paint: { "raster-opacity": 0.85 } },
+          {
+            id: "bg",
+            type: "background",
+            paint: { "background-color": COLOURS.background },
+          },
         ],
       },
       center: [PALISADES.lng, PALISADES.lat],
@@ -94,7 +104,12 @@ export function IncidentMap({
     );
     m.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
 
-    m.on("load", () => {
+    // Robust init. `load` fires once; if the style is already loaded by the
+    // time we attach (Fast Refresh, a cached style, a re-mount) the event never
+    // comes and the map sits there with no layers and no markers. Errors are
+    // logged rather than swallowed inside the event handler.
+    const initLayers = () => {
+      try {
       // Safe zone
       m.addSource("safe-zone", {
         type: "geojson",
@@ -172,21 +187,40 @@ export function IncidentMap({
         paint: { "line-color": "#FF6A00", "line-width": 3, "line-blur": 1 },
       });
 
-      ready.current = true;
+        setReady(true);
+      } catch (error) {
+        console.error("[valoris map] layer initialisation failed", error);
+      }
+    };
+
+    if (m.isStyleLoaded()) initLayers();
+    else m.once("load", initLayers);
+
+    m.on("error", (e) => {
+      // Tile failures are survivable — our own layers still draw. Log, do not
+      // let a basemap problem take the operational picture down with it.
+      console.warn("[valoris map]", e.error?.message ?? e);
     });
+
+    // MapLibre only listens for WINDOW resizes. When the container itself
+    // changes size — a panel opening, a breakpoint flip — the canvas keeps its
+    // old dimensions and the map looks cropped or blank.
+    const observer = new ResizeObserver(() => m.resize());
+    observer.observe(container.current);
 
     map.current = m;
     return () => {
+      observer.disconnect();
       m.remove();
       map.current = null;
-      ready.current = false;
+      setReady(false);
     };
   }, []);
 
   /* --- Push fire front and crew on every snapshot ------------------------ */
   useEffect(() => {
     const m = map.current;
-    if (m === null || !ready.current || snapshot === null) return;
+    if (m === null || !ready || snapshot === null) return;
 
     const perimeter = snapshot.fireFront.perimeter ?? [];
     const source = m.getSource("fire-front") as maplibregl.GeoJSONSource | undefined;
@@ -247,11 +281,54 @@ export function IncidentMap({
           ">${f.callsign}${p.badge === null ? "" : ` <span style="color:${BAND_COLOUR.UNKNOWN}">${p.badge}</span>`}</div>
         </div>`;
     }
-  }, [snapshot, selected]);
+  }, [snapshot, selected, ready]);
+
+  const toggleBasemap = () => {
+    const m = map.current;
+    if (m === null || !ready) return;
+    if (basemapOn) {
+      if (m.getLayer("carto") !== undefined) m.removeLayer("carto");
+      if (m.getSource("carto") !== undefined) m.removeSource("carto");
+      setBasemapOn(false);
+      return;
+    }
+    try {
+      m.addSource("carto", {
+        type: "raster",
+        tiles: [
+          "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+          "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
+        ],
+        tileSize: 256,
+        attribution: "© OpenStreetMap contributors © CARTO",
+      });
+      // Beneath everything of ours — the basemap is context, not content.
+      m.addLayer(
+        { id: "carto", type: "raster", source: "carto", paint: { "raster-opacity": 0.8 } },
+        "safe-zone-fill",
+      );
+      setBasemapOn(true);
+    } catch (error) {
+      console.warn("[valoris map] basemap unavailable", error);
+    }
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded" style={{ border: `1px solid ${COLOURS.border}` }}>
       <div ref={container} className="h-full w-full" />
+
+      <button
+        onClick={toggleBasemap}
+        className="absolute right-2 top-2 z-10 rounded px-2 py-1 text-[11px] font-semibold"
+        style={{
+          background: basemapOn ? "#1E2650" : "rgba(5,6,15,0.85)",
+          border: `1px solid ${COLOURS.border}`,
+          color: COLOURS.text,
+        }}
+      >
+        BASEMAP {basemapOn ? "ON" : "OFF"}
+      </button>
       <div
         className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-[11px]"
         style={{ background: "rgba(5,6,15,0.85)", color: COLOURS.muted, border: `1px solid ${COLOURS.border}` }}

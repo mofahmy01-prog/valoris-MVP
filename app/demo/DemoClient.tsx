@@ -117,12 +117,17 @@ export function DemoClient() {
 
       {/* Main */}
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="min-h-[420px] min-w-0 flex-[3] p-2 lg:min-h-0">
+        {/*
+          EXPLICIT height, in viewport units. A percentage or `flex-1` height
+          only resolves if every ancestor has a definite height — with a
+          `min-h-screen` root it collapses to zero and the map disappears.
+        */}
+        <div className="h-[52vh] min-w-0 flex-[3] p-2 lg:h-[calc(100vh-13rem)]">
           <IncidentMap snapshot={snapshot} selected={selected} onSelect={setSelected} />
         </div>
 
         <div
-          className="flex min-h-[420px] min-w-[340px] flex-[2] flex-col lg:min-h-0"
+          className="flex h-[52vh] min-w-[340px] flex-[2] flex-col lg:h-[calc(100vh-13rem)]"
           style={{ borderLeft: `1px solid ${COLOURS.border}` }}
         >
           <div className="flex gap-1 p-2" style={{ borderBottom: `1px solid ${COLOURS.border}` }}>
@@ -151,7 +156,7 @@ export function DemoClient() {
         </div>
 
         {selectedFirefighter !== null && view === "crew" && (
-          <div className="min-h-[420px] w-full shrink-0 lg:min-h-0 lg:w-[380px]">
+          <div className="h-[52vh] w-full shrink-0 lg:h-[calc(100vh-13rem)] lg:w-[380px]">
             <DetailPanel
               firefighter={selectedFirefighter}
               onClose={() => setSelected(null)}

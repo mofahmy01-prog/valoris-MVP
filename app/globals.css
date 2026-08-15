@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* MapLibre positions its canvas, controls and markers from this stylesheet.
+   Without it the map renders as an unpositioned blank area. */
+@import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
   color-scheme: dark;
