@@ -250,27 +250,26 @@ band becomes **`UNKNOWN` rather than `SAFE`** — the "low confidence can never
 produce SAFE" rule, triggered by a gap in drone coverage rather than by a broken
 sensor.
 
-**Response drones escort a named firefighter out.** Two legs, ten seconds each,
-on the wall clock: *inbound* from a staging area south-west of the fire, then
-*escorting* the crew member outward until they are clear.
+**Casualty extraction is flown by a helicopter, not a drone.** An earlier version
+had a drone carry the firefighter out. A drone capable of lifting a person in PPE
+is enormous and nobody fields one over a fireground; rotary-wing hoist extraction
+is routine capability today. The claim did not survive contact with the domain,
+so it was replaced rather than defended.
 
-Clear means clear **for them**. The destination is derived from that
-firefighter's own safe contour, so it is a different place for each person —
-ALPHA-1 clears a few hundred metres out, BRAVO-2 the best part of a kilometre.
-The escort stops the moment the engine reports SAFE rather than running a fixed
-distance, because the standoff a casualty needs shrinks as they get out and their
-heart rate settles. Running the full leg overshot: one crew member reached SAFE
-at 906 m and was walked on to 3603 m, outside recon coverage, where the band fell
-back to `UNKNOWN` — rescued into a worse reading.
+Three legs on the wall clock: **INBOUND** from the helibase, **HOIST** holding
+over the casualty, then **LIFTING** them out. The destination is derived from
+that firefighter's own safe contour, so it differs per person, and the lift stops
+the moment the engine reports SAFE rather than running a fixed distance.
 
-Watching the crew row during an extraction is the clearest single demonstration
-of the whole product: `DANGER` at 346 m inside the perimeter → `CAUTION` at the
-edge → `SAFE`, with the engine re-evaluating at each step against that
-individual's thresholds.
+**Support drones keep the job drones are good at — sensing.** One joins at the
+hoist and holds over the extraction, and its footprint is submitted to the scene
+as a coverage unit. Without it a casualty drifts out of the recon pattern
+mid-extraction and their confidence collapses exactly when it matters. Measured
+with a firefighter stranded outside coverage: `UNKNOWN` / low confidence without
+the support drone, `SAFE` / medium with it — and the crew member still out of
+sector correctly stays `UNKNOWN`, so it covers who it is over and nobody else.
 
-They do **not** carry anyone. Casualty extraction by drone is not fielded
-capability, and claiming it would be the one thing in this demo backed by
-neither real data nor a real engine.
+Evacuation is **requested by the commander** and never launched automatically.
 
 They are dispatched **by the commander**, from a button on that crew member's
 row, and never automatically. Valoris does not withdraw anyone and does not

@@ -28,19 +28,30 @@
 import { INCIDENT_CENTRE } from "./simulator";
 import { perimeterRadiiAt, PROFILE_BEARINGS, toLngLat, type LngLat } from "./palisades";
 
-export type DroneKind = "recon" | "response";
+export type DroneKind = "recon" | "support";
 
 /**
- * How long a response drone takes to reach its target, wall-clock milliseconds.
+ * Casualty extraction is flown by a HELICOPTER, not a drone.
  *
- * A fixed duration rather than a ground speed. The honest version — distance
- * divided by 20 m/s — put arrival several minutes out, and worse, it was
- * measured against the TIMELINE clock, which only advances when the commander
- * scrubs. A drone dispatched on a paused timeline never arrived at all. Flight
- * is a wall-clock animation now, and this is the demo's tempo, not an
- * aerodynamic claim.
+ * An earlier version had a drone carry the firefighter out. A drone capable of
+ * lifting a person in PPE is enormous, and nobody fields one over a fireground;
+ * the claim did not survive first contact with anyone who knows the domain.
+ * Rotary-wing hoist extraction, by contrast, is routine capability today.
+ *
+ * Drones keep the job they are actually good at: sensing. During an extraction
+ * a SUPPORT drone holds over the corridor and keeps the air picture current for
+ * the casualty while they are moved — otherwise they drift out of the recon
+ * pattern mid-evacuation and their confidence collapses exactly when it matters.
+ *
+ * These durations are the demo's tempo, not aerodynamic claims.
  */
-export const RESPONSE_FLIGHT_MS = 10_000;
+export const EVAC_INBOUND_MS = 9_000;
+export const EVAC_HOIST_MS = 6_000;
+export const EVAC_EXTRACT_MS = 9_000;
+export const EVAC_TOTAL_MS = EVAC_INBOUND_MS + EVAC_HOIST_MS + EVAC_EXTRACT_MS;
+
+/** Sensor footprint a support drone holds over an extraction. */
+export const SUPPORT_COVERAGE_M = 1_600;
 
 /**
  * Recon orbits, defined relative to the fire rather than as fixed coordinates.
@@ -60,7 +71,7 @@ const RECON_ORBITS: {
   { id: "RECON-3", bearingDeg: 335, standoffM: 900, coverageRadiusM: 2_200 },
 ];
 
-/** Staging area the response drones launch from. South-west, well clear. */
+/** Helibase the evacuation aircraft launches from. South-west, well clear. */
 const BASE_BEARING_DEG = 205;
 const BASE_STANDOFF_M = 2_500;
 
@@ -98,7 +109,7 @@ function pointOnBearing(atMs: number, bearingDeg: number, extraM: number): LngLa
   return toLngLat(Math.sin(angle) * r, Math.cos(angle) * r);
 }
 
-/** Where response drones launch from. */
+/** Where the evacuation helicopter launches from. */
 export function baseAt(atMs: number): LngLat {
   return pointOnBearing(atMs, BASE_BEARING_DEG, BASE_STANDOFF_M);
 }
@@ -198,13 +209,13 @@ export function hasReconCoverage(
 }
 
 /**
- * Response drones are deliberately NOT computed here.
+ * The evacuation itself is NOT computed here.
  *
- * They carry equipment; they do not change anyone's risk score, so they have no
- * business inside the scene evaluation, which costs hundreds of engine
- * evaluations per request and cannot be polled at animation rate. Their flight
- * is a ten-second wall-clock animation owned by the client, interpolating
- * between `baseAt()` and the target using `RESPONSE_FLIGHT_MS`.
+ * The helicopter and its support drone are a wall-clock animation owned by the
+ * client: the scene evaluation costs hundreds of engine calls per request and
+ * cannot be polled at animation rate. What DOES come back to the server is the
+ * support drone's position, submitted as an extra coverage unit, so the air
+ * picture it provides feeds the same confidence machinery as the recon pattern.
  *
  * Recon stays server-side because it genuinely does change the score.
  */

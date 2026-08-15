@@ -34,7 +34,13 @@ import {
   TIMELINE_START_MS,
   toLngLat,
 } from "@/lib/sim/palisades";
-import { baseAt, reconDronesAt, RESPONSE_FLIGHT_MS } from "@/lib/sim/drones";
+import {
+  baseAt,
+  EVAC_TOTAL_MS,
+  reconDronesAt,
+  SUPPORT_COVERAGE_M,
+  type DroneState,
+} from "@/lib/sim/drones";
 import { assessCrewMember, MAX_OFFSET_M, type CrewPlacement } from "@/lib/sim/scene";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +56,16 @@ const bodySchema = z.object({
       }),
     )
     .max(50)
+    .optional(),
+  /**
+   * Sensor units the client has put up beyond the standing recon pattern —
+   * currently a support drone holding over an active extraction. They count
+   * toward coverage exactly as a recon drone does, which is how an evacuation
+   * keeps the casualty's air data current while they are moved.
+   */
+  supportUnits: z
+    .array(z.object({ lat: z.number(), lng: z.number() }))
+    .max(10)
     .optional(),
 });
 
@@ -120,7 +136,18 @@ export async function POST(request: Request) {
       ? parsed.data.crew
       : defaultPlacements();
 
-  const recon = reconDronesAt(atMs, placements);
+  const standingRecon = reconDronesAt(atMs, placements);
+  const support: DroneState[] = (parsed.data.supportUnits ?? []).map((u, i) => ({
+    id: `SUPPORT-${i + 1}`,
+    kind: "support" as const,
+    lat: u.lat,
+    lng: u.lng,
+    status: "on_station" as const,
+    coverageRadiusM: SUPPORT_COVERAGE_M,
+    assignedTo: null,
+    etaSec: null,
+  }));
+  const recon = [...standingRecon, ...support];
   const [baseLng, baseLat] = baseAt(atMs);
 
   const crew = [];
@@ -176,8 +203,8 @@ export async function POST(request: Request) {
      */
     drones: recon,
     droneBase: { lat: baseLat, lng: baseLng },
-    /** Client-side flight duration for a commander-dispatched response drone. */
-    responseFlightMs: RESPONSE_FLIGHT_MS,
+    /** Wall-clock duration of a full commander-requested evacuation. */
+    evacTotalMs: EVAC_TOTAL_MS,
 
     /**
      * Facts lifted verbatim from the interagency incident record, stored in
@@ -221,7 +248,7 @@ export async function POST(request: Request) {
       crewPositions: "INVENTED for the demonstration. Real deployment positions are not public.",
       riskEngine: "REAL — production assessRisk and derivePhysiology, unmodified.",
       drones:
-        "SYNTHETIC (Tier C) — no drone integration exists. No airframe, autopilot, vendor or datalink is modelled. Recon footprints decide only whether a firefighter's air data is treated as current; response drones are dispatched by the commander and never automatically.",
+        "SYNTHETIC (Tier C) — no drone or aircraft integration exists. No airframe, autopilot, vendor or datalink is modelled. Recon and support footprints decide only whether a firefighter's air data is treated as current. Casualty extraction is flown by helicopter, which is real fielded capability; a drone carrying a person is not, and is not claimed. Evacuation is requested by the commander and never launched automatically.",
     },
   });
 }

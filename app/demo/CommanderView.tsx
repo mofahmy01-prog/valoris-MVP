@@ -110,11 +110,25 @@ const PITCH_3D = 62;
 
 type BasemapKey = keyof typeof BASEMAPS | "off";
 const BASEMAP_CYCLE: BasemapKey[] = ["dark", "terrain", "satellite", "off"];
-/** Wall-clock flight time for a dispatched response drone, base to casualty. */
-const RESPONSE_FLIGHT_MS = 10_000;
-/** Wall-clock time for the escort leg, casualty to their own safe contour. */
-const ESCORT_MS = 10_000;
-const RESPONSE_COLOUR = "#B98CFF";
+/**
+ * Casualty extraction is flown by a HELICOPTER, not a drone.
+ *
+ * A drone big enough to lift a firefighter in PPE does not exist over a
+ * fireground; rotary-wing hoist extraction is routine. The drones keep the job
+ * they are good at — a SUPPORT drone holds over the corridor and keeps the
+ * casualty's air picture current while they are moved, which stops their
+ * confidence collapsing mid-evacuation.
+ *
+ * Three legs: the aircraft comes in, hoists, and flies them out. Durations are
+ * the demo's tempo, not aerodynamic claims.
+ */
+const EVAC_INBOUND_MS = 9_000;
+const EVAC_HOIST_MS = 6_000;
+const EVAC_EXTRACT_MS = 9_000;
+const EVAC_TOTAL_MS = EVAC_INBOUND_MS + EVAC_HOIST_MS + EVAC_EXTRACT_MS;
+
+const EVAC_COLOUR = "#FFB347";
+const SUPPORT_COLOUR = "#B98CFF";
 
 const ZONE_COLOUR = {
   DANGER: BAND_COLOUR.CRITICAL,
@@ -159,7 +173,7 @@ type Crew = {
 
 type Drone = {
   id: string;
-  kind: "recon" | "response";
+  kind: "recon" | "support" | "evac";
   lat: number;
   lng: number;
   status: "on_station" | "en_route" | "arrived";
@@ -168,7 +182,7 @@ type Drone = {
   etaSec: number | null;
 };
 
-type Dispatch = {
+type Evac = {
   id: string;
   targetCallsign: string;
   /** Where the crew member stood when the drone was launched. */
@@ -183,8 +197,8 @@ type Dispatch = {
   /** Wall clock, not timeline clock — the flight is an animation. */
   dispatchedAtWallMs: number;
   /**
-   * Set once the engine reports this firefighter SAFE, which ends the escort
-   * wherever they happen to be standing.
+   * Set once the engine reports this firefighter SAFE, which ends the lift
+   * wherever they happen to be.
    */
   arrived?: boolean;
 };
@@ -338,8 +352,8 @@ export function CommanderView() {
     { callsign: string; lat: number; lng: number }[] | null
   >(null);
   /** Response drones the commander has launched. Never automatic. */
-  const [dispatches, setDispatches] = useState<Dispatch[]>([]);
-  const dispatchesRef = useRef<Dispatch[]>([]);
+  const [dispatches, setDispatches] = useState<Evac[]>([]);
+  const dispatchesRef = useRef<Evac[]>([]);
   dispatchesRef.current = dispatches;
 
   /**
@@ -364,6 +378,8 @@ export function CommanderView() {
    */
   const crewRef = useRef<Crew[]>([]);
   crewRef.current = scene?.crew ?? crewRef.current;
+  /** Support-drone footprints handed to the scene as extra coverage units. */
+  const supportUnitsRef = useRef<{ lat: number; lng: number }[]>([]);
 
   useEffect(() => {
     if (dispatches.length === 0) return;
@@ -371,9 +387,7 @@ export function CommanderView() {
       const now = Date.now();
       setWallMs(now);
       const allLanded = dispatches.every(
-        (d) =>
-          d.arrived === true ||
-          now - d.dispatchedAtWallMs >= RESPONSE_FLIGHT_MS + ESCORT_MS,
+        (d) => d.arrived === true || now - d.dispatchedAtWallMs >= EVAC_TOTAL_MS,
       );
       if (allLanded) clearInterval(id);
     }, 100);
@@ -381,104 +395,123 @@ export function CommanderView() {
   }, [dispatches]);
 
   /**
-   * Response drones as a two-leg mission on the wall clock.
+   * The evacuation, as a three-leg mission on the wall clock.
    *
-   *   INBOUND   base → where the crew member stood when dispatched
-   *   ESCORTING that crew member → the point beyond their own safe contour
-   *   CLEAR     standing off at the destination
+   *   INBOUND     helibase → the casualty
+   *   HOIST       holding over them, stationary
+   *   EXTRACTING  flying them out beyond their own safe contour
+   *   CLEAR       down at the destination
+   *
+   * A SUPPORT drone accompanies from the moment of the hoist and holds over the
+   * corridor. Its position is submitted to the scene as a coverage unit, so the
+   * casualty keeps a current air picture while they are moved instead of
+   * drifting out of the recon pattern and losing confidence mid-extraction.
    */
-  const responseDrones = useMemo<(Drone & { phase: string })[]>(() => {
+  const evacUnits = useMemo<(Drone & { phase: string })[]>(() => {
     const base = scene?.droneBase;
     if (base === undefined) return [];
 
-    return dispatches.map((d) => {
+    const units: (Drone & { phase: string })[] = [];
+
+    for (const d of dispatches) {
       const elapsed = wallMs - d.dispatchedAtWallMs;
 
-      if (elapsed < RESPONSE_FLIGHT_MS) {
-        const progress = Math.max(0, elapsed / RESPONSE_FLIGHT_MS);
-        return {
-          id: d.id,
-          kind: "response" as const,
-          lat: base.lat + (d.fromLat - base.lat) * progress,
-          lng: base.lng + (d.fromLng - base.lng) * progress,
-          status: "en_route" as const,
-          coverageRadiusM: null,
-          assignedTo: d.targetCallsign,
-          etaSec: Math.ceil((RESPONSE_FLIGHT_MS - elapsed) / 1000),
-          phase: "INBOUND",
-        };
-      }
+      let lat: number;
+      let lng: number;
+      let phase: string;
+      let remaining: number;
 
       if (d.arrived === true) {
-        return {
-          id: d.id,
-          kind: "response" as const,
-          lat: d.toLat,
-          lng: d.toLng,
-          status: "arrived" as const,
-          coverageRadiusM: null,
-          assignedTo: d.targetCallsign,
-          etaSec: 0,
-          phase: "CLEAR",
-        };
+        lat = d.toLat;
+        lng = d.toLng;
+        phase = "CLEAR";
+        remaining = 0;
+      } else if (elapsed < EVAC_INBOUND_MS) {
+        const p = Math.max(0, elapsed / EVAC_INBOUND_MS);
+        lat = base.lat + (d.fromLat - base.lat) * p;
+        lng = base.lng + (d.fromLng - base.lng) * p;
+        phase = "INBOUND";
+        remaining = EVAC_TOTAL_MS - elapsed;
+      } else if (elapsed < EVAC_INBOUND_MS + EVAC_HOIST_MS) {
+        lat = d.fromLat;
+        lng = d.fromLng;
+        phase = "HOIST";
+        remaining = EVAC_TOTAL_MS - elapsed;
+      } else {
+        const p = Math.min(
+          1,
+          (elapsed - EVAC_INBOUND_MS - EVAC_HOIST_MS) / EVAC_EXTRACT_MS,
+        );
+        lat = d.fromLat + (d.toLat - d.fromLat) * p;
+        lng = d.fromLng + (d.toLng - d.fromLng) * p;
+        phase = p >= 1 ? "CLEAR" : "EXTRACTING";
+        remaining = Math.max(0, EVAC_TOTAL_MS - elapsed);
       }
 
-      const escortProgress = Math.min(1, (elapsed - RESPONSE_FLIGHT_MS) / ESCORT_MS);
-      return {
+      units.push({
         id: d.id,
-        kind: "response" as const,
-        lat: d.fromLat + (d.toLat - d.fromLat) * escortProgress,
-        lng: d.fromLng + (d.toLng - d.fromLng) * escortProgress,
-        status: escortProgress >= 1 ? ("arrived" as const) : ("en_route" as const),
+        kind: "evac",
+        lat,
+        lng,
+        status: phase === "CLEAR" ? "arrived" : "en_route",
         coverageRadiusM: null,
         assignedTo: d.targetCallsign,
-        etaSec:
-          escortProgress >= 1
-            ? 0
-            : Math.ceil((RESPONSE_FLIGHT_MS + ESCORT_MS - elapsed) / 1000),
-        phase: escortProgress >= 1 ? "CLEAR" : "ESCORTING",
-      };
-    });
+        etaSec: phase === "CLEAR" ? 0 : Math.ceil(remaining / 1000),
+        phase,
+      });
+
+      // Support drone joins once the aircraft is overhead, and holds with them.
+      if (phase === "HOIST" || phase === "EXTRACTING" || phase === "CLEAR") {
+        units.push({
+          id: `SUPPORT-${d.targetCallsign}`,
+          kind: "support",
+          lat,
+          lng,
+          status: "on_station",
+          coverageRadiusM: 1_600,
+          assignedTo: d.targetCallsign,
+          etaSec: null,
+          phase: "OVERWATCH",
+        });
+      }
+    }
+
+    return units;
   }, [dispatches, wallMs, scene?.droneBase]);
 
-  /*
-    Walk the escorted crew member out, committing their position to the scene.
+  // Hand the support footprints to the scene so they count toward coverage.
+  supportUnitsRef.current = evacUnits
+    .filter((u) => u.kind === "support")
+    .map((u) => ({ lat: u.lat, lng: u.lng }));
 
-    Throttled rather than run every animation frame: each commit re-evaluates
-    the real engine at the new position, which is what makes the zone chip step
-    DANGER → CAUTION → SAFE as they clear their own contour. Doing that eight
-    times over the escort is affordable and legible; doing it a hundred times
-    would just queue requests behind each other.
+  /*
+    Walk the casualty out with the aircraft, committing their position to the
+    scene on a throttle so the engine re-evaluates as they clear.
   */
   const lastCommitRef = useRef(0);
   useEffect(() => {
     if (scene === null || dispatches.length === 0) return;
     if (wallMs - lastCommitRef.current < 1_200) return;
 
-    const escorting = dispatches.filter((d) => {
+    const moving = dispatches.filter((d) => {
       if (d.arrived === true) return false;
       const elapsed = wallMs - d.dispatchedAtWallMs;
-      return elapsed >= RESPONSE_FLIGHT_MS && elapsed <= RESPONSE_FLIGHT_MS + ESCORT_MS + 400;
+      return elapsed >= EVAC_INBOUND_MS + EVAC_HOIST_MS && elapsed <= EVAC_TOTAL_MS + 400;
     });
-    if (escorting.length === 0) return;
+    if (moving.length === 0) return;
 
     /*
-      Stop the escort the moment the engine says they are clear.
+      Stop the moment the engine says they are clear.
 
-      The destination is computed at dispatch, when the casualty is usually deep
-      inside the fire and their required standoff is at its largest. That
-      standoff shrinks as they get out and their heart rate settles, so running
-      the full leg overshot badly — one crew member reached SAFE at 906 m and
-      was then walked on to 3603 m, out of recon coverage, where the band fell
-      back to UNKNOWN. Rescued into a worse reading.
-
-      So the target is a direction, not a contract. Clear is clear.
+      The destination is computed at request time, when the casualty is deepest
+      in and their required standoff is largest. That standoff shrinks as they
+      get out, so running the full leg overshot — one crew member reached SAFE
+      at 906 m and was carried on to 3603 m, outside coverage, where the band
+      fell back to UNKNOWN. Clear is clear.
     */
-    const nowSafe = escorting.filter((d) => {
-      if (d.arrived === true) return false;
-      return crewRef.current.find((c) => c.callsign === d.targetCallsign)?.zone === "SAFE";
-    });
-
+    const nowSafe = moving.filter(
+      (d) => crewRef.current.find((c) => c.callsign === d.targetCallsign)?.zone === "SAFE",
+    );
     if (nowSafe.length > 0) {
       setDispatches((current) =>
         current.map((d) => {
@@ -496,11 +529,11 @@ export function CommanderView() {
       const basePositions =
         current ?? crewRef.current.map((c) => ({ callsign: c.callsign, lat: c.lat, lng: c.lng }));
       return basePositions.map((p) => {
-        const d = escorting.find((x) => x.targetCallsign === p.callsign);
+        const d = moving.find((x) => x.targetCallsign === p.callsign);
         if (d === undefined) return p;
         const progress = Math.min(
           1,
-          (wallMs - d.dispatchedAtWallMs - RESPONSE_FLIGHT_MS) / ESCORT_MS,
+          (wallMs - d.dispatchedAtWallMs - EVAC_INBOUND_MS - EVAC_HOIST_MS) / EVAC_EXTRACT_MS,
         );
         return {
           ...p,
@@ -524,6 +557,9 @@ export function CommanderView() {
           atMs: whenMs ?? Date.parse("2025-01-08T14:00:00Z"),
         };
         if (crew !== null) body.crew = crew;
+        if (supportUnitsRef.current.length > 0) {
+          body.supportUnits = supportUnitsRef.current;
+        }
 
         const response = await fetch("/api/demo/scene", {
           method: "POST",
@@ -966,7 +1002,7 @@ export function CommanderView() {
     const reconFeatures: GeoJSON.Feature[] = [];
     const seenDrones = new Set<string>();
 
-    for (const drone of [...scene.drones, ...responseDrones]) {
+    for (const drone of [...scene.drones, ...evacUnits]) {
       seenDrones.add(drone.id);
 
       if (
@@ -979,15 +1015,24 @@ export function CommanderView() {
         );
       }
 
-      const colour = drone.kind === "recon" ? RECON_COLOUR : RESPONSE_COLOUR;
-      const glyph = drone.kind === "recon" ? "R" : "▲";
+      const colour =
+        drone.kind === "recon"
+          ? RECON_COLOUR
+          : drone.kind === "support"
+            ? SUPPORT_COLOUR
+            : EVAC_COLOUR;
+      // Rotor for the aircraft, triangle for a support drone, R for recon.
+      const glyph =
+        drone.kind === "recon" ? "R" : drone.kind === "support" ? "▲" : "✈";
       const phase = (drone as Drone & { phase?: string }).phase;
       const label =
         drone.kind === "recon"
           ? drone.id
-          : `${drone.assignedTo ?? "?"} · ${phase ?? ""}${
-              drone.status === "en_route" ? ` ${drone.etaSec}s` : ""
-            }`;
+          : drone.kind === "support"
+            ? `SUPPORT · ${drone.assignedTo ?? ""}`
+            : `EVAC · ${drone.assignedTo ?? "?"} · ${phase ?? ""}${
+                drone.status === "en_route" ? ` ${drone.etaSec}s` : ""
+              }`;
 
       let marker = droneMarkers.current[drone.id];
       if (marker === undefined) {
@@ -1027,7 +1072,7 @@ export function CommanderView() {
 
     const reconSource = m.getSource("recon") as maplibregl.GeoJSONSource | undefined;
     reconSource?.setData({ type: "FeatureCollection", features: reconFeatures });
-  }, [scene, ready, selected, selectedCrew, responseDrones]);
+  }, [scene, ready, selected, selectedCrew, evacUnits]);
 
   /**
    * Frame the selected firefighter closely enough to read their three bands.
@@ -1066,11 +1111,11 @@ export function CommanderView() {
   const current = atMs ?? scene?.atMs ?? start;
 
   /** A response drone already launched for this crew member, if any. */
-  const dispatchFor = (callsign: string): Dispatch | undefined =>
+  const dispatchFor = (callsign: string): Evac | undefined =>
     dispatches.find((d) => d.targetCallsign === callsign);
 
   const droneFor = (callsign: string): (Drone & { phase: string }) | undefined =>
-    responseDrones.find((d) => d.assignedTo === callsign);
+    evacUnits.find((d) => d.kind === "evac" && d.assignedTo === callsign);
 
   /*
     Dispatch is a COMMANDER ACTION and never automatic.
@@ -1321,27 +1366,28 @@ export function CommanderView() {
                       <button
                         className="ml-auto rounded px-2 py-0.5 text-[9px] font-bold"
                         style={{
-                          border: `1px solid ${RESPONSE_COLOUR}`,
-                          color: RESPONSE_COLOUR,
+                          border: `1px solid ${EVAC_COLOUR}`,
+                          color: EVAC_COLOUR,
                         }}
                         onClick={(event) => {
                           event.stopPropagation();
                           dispatchTo(member);
                         }}
                       >
-                        DISPATCH DRONE
+                        REQUEST EVAC
                       </button>
                     ) : (
                       <span
                         className="ml-auto rounded px-2 py-0.5 text-[9px] font-bold"
-                        style={{ color: RESPONSE_COLOUR, border: `1px solid ${RESPONSE_COLOUR}` }}
+                        style={{ color: EVAC_COLOUR, border: `1px solid ${EVAC_COLOUR}` }}
                       >
                         {(() => {
                           const d = droneFor(member.callsign);
                           if (d === undefined) return "DISPATCHED";
                           const phase = (d as Drone & { phase?: string }).phase;
                           if (phase === "INBOUND") return `INBOUND ${d.etaSec}s`;
-                          if (phase === "ESCORTING") return `ESCORTING ${d.etaSec}s`;
+                          if (phase === "HOIST") return `HOIST ${d.etaSec}s`;
+                          if (phase === "EXTRACTING") return `LIFTING ${d.etaSec}s`;
                           return "CLEAR";
                         })()}
                       </span>
