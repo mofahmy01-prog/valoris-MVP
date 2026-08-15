@@ -89,7 +89,26 @@ type Scene = {
   geo: Geo;
   crew: Crew[];
   provenance: Record<string, string>;
+  incidentRecord: Record<string, string | number | null>;
 };
+
+/** Labels for the provenance keys, in the order they should be read. */
+const PROVENANCE_ORDER: { key: string; label: string; tier: "REAL" | "UNVERIFIED" | "SYNTHETIC" }[] = [
+  { key: "riskEngine", label: "Risk engine", tier: "REAL" },
+  { key: "perimeterShape", label: "Fire outline", tier: "REAL" },
+  { key: "timelineEndpoints", label: "Timeline endpoints", tier: "REAL" },
+  { key: "growthTiming", label: "Growth timing", tier: "UNVERIFIED" },
+  { key: "polygonDateCaveat", label: "Polygon date caveat", tier: "UNVERIFIED" },
+  { key: "intermediateShape", label: "Intermediate perimeters", tier: "SYNTHETIC" },
+  { key: "atmosphere", label: "Smoke and heat", tier: "SYNTHETIC" },
+  { key: "crewPositions", label: "Crew positions", tier: "SYNTHETIC" },
+];
+
+const TIER_COLOUR = {
+  REAL: BAND_COLOUR.SAFE,
+  UNVERIFIED: BAND_COLOUR.CAUTION,
+  SYNTHETIC: BAND_COLOUR.UNKNOWN,
+} as const;
 
 /**
  * Build a closed ring from the fire's radius-per-bearing array, pushed outward
@@ -714,6 +733,63 @@ export function CommanderView() {
                 </button>
               );
             })
+          )}
+
+          {/*
+            Provenance, shown rather than buried. The synthetic parts of this
+            picture are the first thing a reviewer should be told, not something
+            they have to catch — and the parts that ARE real are more convincing
+            when they sit next to an honest account of the parts that are not.
+          */}
+          {scene !== null && (
+            <details className="px-3 py-2" style={{ borderTop: `1px solid ${COLOURS.border}` }}>
+              <summary
+                className="cursor-pointer text-[11px] font-bold"
+                style={{ color: COLOURS.text }}
+              >
+                What here is real? ({PROVENANCE_ORDER.filter((p) => p.tier === "REAL").length} real
+                · {PROVENANCE_ORDER.filter((p) => p.tier === "UNVERIFIED").length} unverified ·{" "}
+                {PROVENANCE_ORDER.filter((p) => p.tier === "SYNTHETIC").length} synthetic)
+              </summary>
+
+              <div className="mt-2 space-y-1.5">
+                {PROVENANCE_ORDER.map((row) => {
+                  const text = scene.provenance[row.key];
+                  if (text === undefined) return null;
+                  return (
+                    <div key={row.key} className="text-[10px] leading-relaxed">
+                      <span
+                        className="mr-1 rounded px-1 py-0.5 font-bold"
+                        style={{
+                          color: TIER_COLOUR[row.tier],
+                          border: `1px solid ${TIER_COLOUR[row.tier]}`,
+                        }}
+                      >
+                        {row.tier}
+                      </span>
+                      <span style={{ color: COLOURS.text }}>{row.label}</span>
+                      <span style={{ color: COLOURS.muted }}> — {text}</span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                className="mt-2 pt-2 font-mono text-[10px]"
+                style={{ borderTop: `1px solid ${COLOURS.border}`, color: COLOURS.muted }}
+              >
+                <div style={{ color: COLOURS.text }}>Interagency incident record</div>
+                {scene.incidentRecord.uniqueFireId} · {scene.incidentRecord.mapMethod} ·{" "}
+                {scene.incidentRecord.finalAcres?.toLocaleString()} acres ·{" "}
+                {scene.incidentRecord.percentContained}% contained
+                <br />
+                discovered {String(scene.incidentRecord.discoveryUtc).slice(0, 16)}Z · record
+                updated {String(scene.incidentRecord.recordUpdatedUtc).slice(0, 16)}Z
+                <br />
+                fuel: {scene.incidentRecord.primaryFuel} · unit:{" "}
+                {scene.incidentRecord.protectingUnit}
+              </div>
+            </details>
           )}
 
           {selectedCrew !== null && (

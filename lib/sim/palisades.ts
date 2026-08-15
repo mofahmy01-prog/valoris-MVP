@@ -47,30 +47,112 @@ export const M_PER_DEG_LNG =
 export const PROFILE_BEARINGS = 180;
 
 /**
- * Published acreage for the Palisades fire, as reported at the time.
+ * The agency incident record, stored alongside the perimeter it describes.
  *
- * UNVERIFIED — transcribed from contemporaneous public reporting, not from the
- * CAL FIRE incident archive. The final figure (23,448 acres) is the widely
- * reported total. These drive only the growth CURVE of the demo timeline; no
- * risk output depends on them. Must be checked against the official incident
- * record before this is used for anything beyond a demonstration.
+ * `data/historical/palisades-2025/incident-metadata.json` is the unmodified
+ * response from the same WFIGS FeatureServer the perimeter came from. The
+ * timeline's endpoints are read out of it rather than typed in here, so they
+ * cannot drift away from the source.
  */
-export const ACREAGE_TIMELINE: { atUtc: string; acres: number }[] = [
-  { atUtc: "2025-01-07T18:30:00Z", acres: 10 },
+type IncidentAttributes = Record<string, string | number | null>;
+
+let cachedAttributes: IncidentAttributes | null = null;
+
+function incidentAttributes(): IncidentAttributes {
+  if (cachedAttributes !== null) return cachedAttributes;
+  const file = path.join(
+    process.cwd(),
+    "data",
+    "historical",
+    "palisades-2025",
+    "incident-metadata.json",
+  );
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as {
+    features: { attributes: IncidentAttributes }[];
+  };
+  cachedAttributes = parsed.features[0]?.attributes ?? {};
+  return cachedAttributes;
+}
+
+const attributes = incidentAttributes();
+const num = (key: string, fallback: number): number =>
+  typeof attributes[key] === "number" ? (attributes[key] as number) : fallback;
+const str = (key: string): string | null =>
+  typeof attributes[key] === "string" ? (attributes[key] as string) : null;
+
+/**
+ * Facts taken directly from the interagency record. These are REAL and citable.
+ *
+ * One caveat, found by reading the record rather than assuming it: the polygon
+ * carries `poly_PolygonDateTime` of 2025-01-08T14:31Z while `poly_DateCurrent`
+ * is 2025-01-21T23:43Z, and its geometry measures the FINAL 23,448 acres. The
+ * capture stamp therefore cannot be read as "the fire was this size at that
+ * moment" — the record was revised long after that first infrared pass. This is
+ * why the perimeter is treated as a final footprint and not as a dated snapshot.
+ */
+export const INCIDENT = {
+  name: str("attr_IncidentName") ?? "Palisades",
+  /** Fire discovery, from the incident record. */
+  discoveryMs: num("attr_FireDiscoveryDateTime", Date.parse("2025-01-07T18:30:00Z")),
+  /** End of the final ICS-209 reporting period — the incident's close. */
+  containmentMs: num(
+    "attr_ICS209RptForTimePeriodTo",
+    Date.parse("2025-02-01T01:30:00Z"),
+  ),
+  /** Observed final size, from the polygon itself. */
+  finalAcres: num("poly_GISAcres", 23_448),
+  polygonStampMs: num("poly_PolygonDateTime", 0),
+  recordUpdatedMs: num("poly_DateCurrent", 0),
+  mapMethod: str("poly_MapMethod"),
+  polygonSource: str("poly_Source"),
+  irwinId: str("attr_IrwinID"),
+  uniqueFireId: str("attr_UniqueFireIdentifier"),
+  primaryFuel: str("attr_PrimaryFuelModel"),
+  percentContained: num("attr_PercentContained", 100),
+  protectingUnit: str("attr_POOProtectingUnit"),
+} as const;
+
+/**
+ * Growth curve for the timeline.
+ *
+ * The FIRST and LAST entries are sourced from the incident record above. Every
+ * entry between them is UNVERIFIED — transcribed from contemporaneous public
+ * reporting, not from the CAL FIRE incident archive — and exists only to shape
+ * the curve. No risk output depends on them.
+ *
+ * The intermediate figures are clamped to the observed final acreage so the
+ * series is monotonic and terminates exactly at it. A previous version peaked
+ * at an unverified 23,713 on 12 January, which normalised the end of the
+ * timeline to 0.989 of full size: the final drawn perimeter came out about 1%
+ * smaller than the real one, undermining the one thing that is meant to be
+ * exactly right.
+ */
+const REPORTED_INTERMEDIATE: { atUtc: string; acres: number }[] = [
   { atUtc: "2025-01-08T02:00:00Z", acres: 1_262 },
   { atUtc: "2025-01-08T18:00:00Z", acres: 11_802 },
   { atUtc: "2025-01-09T18:00:00Z", acres: 17_234 },
   { atUtc: "2025-01-10T18:00:00Z", acres: 19_978 },
   { atUtc: "2025-01-11T18:00:00Z", acres: 21_596 },
-  { atUtc: "2025-01-12T18:00:00Z", acres: 23_713 },
-  { atUtc: "2025-01-31T18:00:00Z", acres: 23_448 },
+  { atUtc: "2025-01-12T18:00:00Z", acres: 23_448 },
 ];
 
-export const TIMELINE_START_MS = Date.parse(ACREAGE_TIMELINE[0]!.atUtc);
-export const TIMELINE_END_MS = Date.parse(
-  ACREAGE_TIMELINE[ACREAGE_TIMELINE.length - 1]!.atUtc,
-);
-export const PEAK_ACRES = Math.max(...ACREAGE_TIMELINE.map((p) => p.acres));
+export const ACREAGE_TIMELINE: { atUtc: string; acres: number; sourced: boolean }[] = [
+  { atUtc: new Date(INCIDENT.discoveryMs).toISOString(), acres: 10, sourced: false },
+  ...REPORTED_INTERMEDIATE.map((p) => ({
+    ...p,
+    acres: Math.min(p.acres, INCIDENT.finalAcres),
+    sourced: false,
+  })),
+  {
+    atUtc: new Date(INCIDENT.containmentMs).toISOString(),
+    acres: INCIDENT.finalAcres,
+    sourced: true,
+  },
+];
+
+export const TIMELINE_START_MS = INCIDENT.discoveryMs;
+export const TIMELINE_END_MS = INCIDENT.containmentMs;
+export const PEAK_ACRES = INCIDENT.finalAcres;
 
 export type LngLat = [number, number];
 

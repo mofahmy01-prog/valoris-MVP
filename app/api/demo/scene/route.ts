@@ -23,6 +23,7 @@ import { toHealthProfile } from "@/lib/incident/mapping";
 import { INCIDENT_CENTRE } from "@/lib/sim/simulator";
 import {
   areaFractionAt,
+  INCIDENT,
   M_PER_DEG_LAT,
   M_PER_DEG_LNG,
   PEAK_ACRES,
@@ -164,15 +165,45 @@ export async function POST(request: Request) {
 
     crew,
 
+    /**
+     * Facts lifted verbatim from the interagency incident record, stored in
+     * the repository next to the perimeter they describe.
+     */
+    incidentRecord: {
+      name: INCIDENT.name,
+      uniqueFireId: INCIDENT.uniqueFireId,
+      irwinId: INCIDENT.irwinId,
+      discoveryUtc: new Date(INCIDENT.discoveryMs).toISOString(),
+      closedUtc: new Date(INCIDENT.containmentMs).toISOString(),
+      finalAcres: INCIDENT.finalAcres,
+      mapMethod: INCIDENT.mapMethod,
+      polygonSource: INCIDENT.polygonSource,
+      polygonStampUtc:
+        INCIDENT.polygonStampMs === 0
+          ? null
+          : new Date(INCIDENT.polygonStampMs).toISOString(),
+      recordUpdatedUtc:
+        INCIDENT.recordUpdatedMs === 0
+          ? null
+          : new Date(INCIDENT.recordUpdatedMs).toISOString(),
+      primaryFuel: INCIDENT.primaryFuel,
+      protectingUnit: INCIDENT.protectingUnit,
+      percentContained: INCIDENT.percentContained,
+    },
+
     provenance: {
       perimeterShape:
-        "REAL — NIFC WFIGS observed final perimeter for the Palisades fire, Jan 2025 (Tier A, public domain).",
+        "REAL (Tier A) — NIFC WFIGS observed perimeter, mapped by IR image interpretation, 23,448 acres. Public domain.",
+      timelineEndpoints:
+        "REAL — discovery and incident-close times are read from the interagency record, not typed in.",
       growthTiming:
-        "Published acreage milestones, UNVERIFIED — approximate contemporaneous reporting, not the CAL FIRE incident archive.",
+        "UNVERIFIED — intermediate acreages are transcribed from contemporaneous public reporting, not the CAL FIRE archive. They shape the curve only; no risk output depends on them.",
       intermediateShape:
-        "SYNTHETIC (Tier C) — every perimeter before the final one is interpolated by area-scaling the observed outline. The real fire did not grow self-similarly. This is NOT a fire behaviour prediction.",
+        "SYNTHETIC (Tier C) — every perimeter before the fire reaches full size is interpolated by area-scaling the observed outline. The real fire did not grow self-similarly; it ran downslope and downwind first. NOT a fire behaviour prediction.",
+      polygonDateCaveat:
+        "The polygon is stamped 2025-01-08T14:31Z but was last revised 2025-01-21T23:43Z and measures the final 23,448 acres. The capture stamp cannot be read as the fire's size at that moment, so it is treated as a final footprint rather than a dated snapshot.",
       atmosphere:
-        "SYNTHETIC (Tier C) — exponential falloff of CO, PM2.5 and heat with distance. No wind, terrain or plume model. Illustrative only.",
+        "SYNTHETIC (Tier C) — exponential falloff of CO, PM2.5 and heat with hand-chosen scale lengths. No wind, terrain or plume model. This drives the ABSOLUTE contour distances, so treat the ordering between firefighters as meaningful and the metres as illustrative.",
       crewPositions: "INVENTED for the demonstration. Real deployment positions are not public.",
       riskEngine: "REAL — production assessRisk and derivePhysiology, unmodified.",
     },
