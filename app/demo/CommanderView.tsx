@@ -829,7 +829,14 @@ export function CommanderView() {
     // Zones belong to the selected firefighter. Painted nested: the SAFE wash is
     // the world with their safe contour punched out, then CAUTION over it, then
     // DANGER, then the fire itself on top.
-    if (selectedCrew === null) {
+    /*
+      No bands for a subject the engine cannot currently place.
+
+      An UNKNOWN firefighter has no safe boundary, so the fallback painted
+      CAUTION out to the full search limit and buried the map in amber. Drawing
+      nothing is the honest answer: we do not know where their thresholds are.
+    */
+    if (selectedCrew === null || selectedCrew.zone === "UNKNOWN") {
       set("zone-safe", null);
       set("zone-caution", null);
       set("zone-danger", null);
@@ -1450,7 +1457,7 @@ export function CommanderView() {
         <div className="flex justify-between text-[10px]" style={{ color: COLOURS.muted }}>
           <span>7 Jan — ignition</span>
           <span>scrub the timeline</span>
-          <span>31 Jan — contained</span>
+          <span>12 Jan — full extent</span>
         </div>
       </div>
     </div>

@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       ? parsed.data.crew
       : defaultPlacements();
 
-  const recon = reconDronesAt(atMs);
+  const recon = reconDronesAt(atMs, placements);
   const [baseLng, baseLat] = baseAt(atMs);
 
   const crew = [];

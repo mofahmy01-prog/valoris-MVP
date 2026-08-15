@@ -25,6 +25,7 @@
  * airframe, autopilot or vendor is modelled.
  */
 
+import { INCIDENT_CENTRE } from "./simulator";
 import { perimeterRadiiAt, PROFILE_BEARINGS, toLngLat, type LngLat } from "./palisades";
 
 export type DroneKind = "recon" | "response";
@@ -102,21 +103,72 @@ export function baseAt(atMs: number): LngLat {
   return pointOnBearing(atMs, BASE_BEARING_DEG, BASE_STANDOFF_M);
 }
 
-/** Recon drones on station for this moment in the timeline. */
-export function reconDronesAt(atMs: number): DroneState[] {
-  return RECON_ORBITS.map((orbit) => {
-    const [lng, lat] = pointOnBearing(atMs, orbit.bearingDeg, orbit.standoffM);
-    return {
-      id: orbit.id,
-      kind: "recon" as const,
+/**
+ * Recon drones on station.
+ *
+ * Tasked over the CREW, not at a fixed standoff from the flame front. The
+ * fire-relative pattern looked reasonable but broke early in the timeline: with
+ * the fire only 4 km across, drones parked at edge-plus-700 m sat well inside
+ * where the crews were standing, so three firefighters 3–4.5 km clear of a small
+ * fire had no coverage, went stale, and dropped to UNKNOWN — which then
+ * collapsed their contours, because a sweep that never finds SAFE returns no
+ * safe boundary at all.
+ *
+ * Tasking recon over the deployment is also what a commander would actually do.
+ * Crews are grouped by bearing into as many sectors as there are airframes, and
+ * one drone covers each sector's centroid. Coverage is still finite: drag a
+ * firefighter far enough out of their sector and they lose it, which is the
+ * interesting case rather than the default one.
+ */
+export function reconDronesAt(
+  atMs: number,
+  crew: { lat: number; lng: number }[] = [],
+): DroneState[] {
+  if (crew.length === 0) {
+    // No deployment to cover — fall back to the fire-relative pattern.
+    return RECON_ORBITS.map((orbit) => {
+      const [lng, lat] = pointOnBearing(atMs, orbit.bearingDeg, orbit.standoffM);
+      return {
+        id: orbit.id,
+        kind: "recon" as const,
+        lat,
+        lng,
+        status: "on_station" as const,
+        coverageRadiusM: orbit.coverageRadiusM,
+        assignedTo: null,
+        etaSec: null,
+      };
+    });
+  }
+
+  const byBearing = [...crew].sort((a, b) => {
+    const bearing = (p: { lat: number; lng: number }) =>
+      Math.atan2(p.lng - INCIDENT_CENTRE.lng, p.lat - INCIDENT_CENTRE.lat);
+    return bearing(a) - bearing(b);
+  });
+
+  const sectors = Math.min(RECON_ORBITS.length, byBearing.length);
+  const perSector = Math.ceil(byBearing.length / sectors);
+  const drones: DroneState[] = [];
+
+  for (let i = 0; i < sectors; i += 1) {
+    const group = byBearing.slice(i * perSector, (i + 1) * perSector);
+    if (group.length === 0) continue;
+    const lat = group.reduce((sum, c) => sum + c.lat, 0) / group.length;
+    const lng = group.reduce((sum, c) => sum + c.lng, 0) / group.length;
+    drones.push({
+      id: RECON_ORBITS[i]!.id,
+      kind: "recon",
       lat,
       lng,
-      status: "on_station" as const,
-      coverageRadiusM: orbit.coverageRadiusM,
+      status: "on_station",
+      coverageRadiusM: RECON_ORBITS[i]!.coverageRadiusM,
       assignedTo: null,
       etaSec: null,
-    };
-  });
+    });
+  }
+
+  return drones;
 }
 
 /** Metres between two lng/lat pairs, locally flat. */

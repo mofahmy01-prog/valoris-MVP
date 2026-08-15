@@ -151,8 +151,27 @@ export const ACREAGE_TIMELINE: { atUtc: string; acres: number; sourced: boolean 
 ];
 
 export const TIMELINE_START_MS = INCIDENT.discoveryMs;
-export const TIMELINE_END_MS = INCIDENT.containmentMs;
 export const PEAK_ACRES = INCIDENT.finalAcres;
+
+/**
+ * The scrubber stops when the fire stops growing, not at containment.
+ *
+ * The Palisades fire reached its full observed extent on 12 January and was not
+ * declared contained until 31 January. Running the slider to containment meant
+ * four fifths of its travel showed an identical, static picture — the control
+ * felt broken. It now ends at full extent, so every position on it does
+ * something.
+ *
+ * Containment is still in the record and still reported; it is simply not the
+ * end of the scrub range. Nothing here claims the fire was out on 12 January.
+ */
+export const FULL_EXTENT_MS = (() => {
+  const reached = ACREAGE_TIMELINE.find((p) => p.acres >= INCIDENT.finalAcres);
+  return reached === undefined ? INCIDENT.containmentMs : Date.parse(reached.atUtc);
+})();
+
+export const CONTAINMENT_MS = INCIDENT.containmentMs;
+export const TIMELINE_END_MS = FULL_EXTENT_MS;
 
 export type LngLat = [number, number];
 

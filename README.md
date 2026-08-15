@@ -223,8 +223,9 @@ npm run lint && npm run typecheck && npm test
 
 Two kinds, doing two different jobs. Only one of them touches the risk score.
 
-**Reconnaissance drones are a sensor platform.** Three orbit a standoff outside
-the fire edge, repositioning as it grows. A firefighter inside a recon footprint
+**Reconnaissance drones are a sensor platform.** Three are tasked over the crew,
+one per sector, grouped by bearing — not parked at a fixed standoff from the
+flame front. A firefighter inside a recon footprint
 has *current* air data; one outside does not, so their environmental channels age
 past the 60-second stale threshold and the existing staleness rules drop their
 confidence. No new scoring path and no special case in the engine — the drone
@@ -232,6 +233,11 @@ earns its place through machinery that was already there.
 
 It also answers a question the demo previously dodged: where was a live CO and
 PM2.5 reading at one firefighter's exact position supposed to be coming from?
+
+Coverage is finite, so it can be lost: drag a firefighter far enough out of
+their sector and their air data goes stale. Because a drone sits at its sector's
+centroid, pulling one crew member away degrades coverage for the other in that
+sector too — splitting a sector costs you both.
 
 The footprints are **not drawn** on the map. Three overlapping 2.2 km rings in a
 fourth colour fought with the risk bands the map exists to show. Coverage is
@@ -285,6 +291,11 @@ that a live tick loop cannot. The projection advances **only the fire**, holding
 position, derived physiology and work cycle at today's values, so it answers
 "the fire keeps growing and this person does not move". It is not a prediction
 of their physiology hours from now.
+
+The scrub range ends on **12 January, when the fire reached its full observed
+extent** — not at containment on 31 January. Running it to containment left four
+fifths of the slider showing an identical static picture. Containment is still in
+the incident record and still reported; it is just not the end of the scrub.
 
 Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
 an `UNKNOWN` state** — if the engine does not currently know where someone
