@@ -41,6 +41,11 @@ import type {
 } from "@/lib/risk/types";
 
 import {
+  hasReconCoverage,
+  reconDronesAt,
+  type DroneState,
+} from "./drones";
+import {
   perimeterRadiiAt,
   separationFromFire,
   TIMELINE_START_MS,
@@ -178,7 +183,30 @@ function vitalsFrom(
   } as unknown as Vitals;
 }
 
-function environmentFrom(air: Atmosphere, atMs: number): Environment {
+/**
+ * How far behind the environmental picture falls with no recon overhead.
+ *
+ * Past the 60-second stale threshold but inside the 120-second missing one, so
+ * the readings stay usable and confidence drops a step rather than the channels
+ * vanishing. Losing the drone should degrade the picture, not black it out.
+ */
+const NO_RECON_AGE_MS = 90_000;
+
+function environmentFrom(
+  air: Atmosphere,
+  atMs: number,
+  reconCoverage: boolean,
+): Environment {
+  /*
+    Recon coverage is what makes the air data current.
+
+    Without a drone overhead there is no plausible source for a live CO and
+    PM2.5 reading at one firefighter's exact position, so those channels are
+    aged and the existing staleness rules take it from there. No new scoring
+    path — the drone earns its place through machinery the engine already has.
+  */
+  const observedAtMs = reconCoverage ? atMs : atMs - NO_RECON_AGE_MS;
+
   return {
     ambientTempC: air.ambientTempC,
     humidityPct: air.humidityPct,
@@ -187,12 +215,12 @@ function environmentFrom(air: Atmosphere, atMs: number): Environment {
     windSpeedMs: 12,
     windDirDeg: 45,
     lastUpdatedMs: {
-      ambientTempC: atMs,
-      humidityPct: atMs,
-      coPpm: atMs,
-      pm25UgM3: atMs,
-      windSpeedMs: atMs,
-      windDirDeg: atMs,
+      ambientTempC: observedAtMs,
+      humidityPct: observedAtMs,
+      coPpm: observedAtMs,
+      pm25UgM3: observedAtMs,
+      windSpeedMs: observedAtMs,
+      windDirDeg: observedAtMs,
     },
   } as unknown as Environment;
 }
@@ -334,6 +362,8 @@ export type CrewAssessment = {
   fatiguePct: number;
   cohbPct: number;
   timeOnTaskMin: number;
+  /** True when a recon drone is refreshing the air picture over this position. */
+  reconCoverage: boolean;
 };
 
 /**
@@ -350,12 +380,14 @@ export function assessCrewMember(
   profile: HealthProfile,
   placement: CrewPlacement,
   atMs: number,
+  recon: DroneState[] = reconDronesAt(atMs),
 ): CrewAssessment {
   const radii = perimeterRadiiAt(atMs);
   const fireRadiusM = Math.max(...radii);
   const { eastM, northM } = toEastNorth(placement.lng, placement.lat);
   const separationM = separationFromFire(atMs, eastM, northM);
   const timeOnTaskMin = timeOnTaskAt(atMs);
+  const reconCoverage = hasReconCoverage(atMs, placement.lat, placement.lng, recon);
 
   const physiology = walkPhysiology(profile, atMs, separationM, fireRadiusM);
   const coreTempC = physiology?.coreTempC ?? 37;
@@ -391,7 +423,7 @@ export function assessCrewMember(
         timeOnTaskMin,
         atMs,
       ),
-      environmentFrom(air, atMs),
+      environmentFrom(air, atMs, reconCoverage),
       positionFrom(
         placement.lat,
         placement.lng,
@@ -467,5 +499,6 @@ export function assessCrewMember(
     fatiguePct: Math.round(fatiguePct),
     cohbPct: Math.round((physiology?.cohbPct ?? 0) * 100) / 100,
     timeOnTaskMin,
+    reconCoverage,
   };
 }

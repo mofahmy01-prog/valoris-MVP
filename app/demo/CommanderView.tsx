@@ -39,6 +39,10 @@ const WORLD_BOX: number[][] = [
   [-119.6, 33.2],
 ];
 
+/** Recon drones and their footprints — deliberately not a band colour. */
+const RECON_COLOUR = "#4FD8E8";
+const RESPONSE_COLOUR = "#B98CFF";
+
 const ZONE_COLOUR = {
   DANGER: BAND_COLOUR.CRITICAL,
   CAUTION: BAND_COLOUR.CAUTION,
@@ -71,9 +75,29 @@ type Crew = {
   fatiguePct: number;
   cohbPct: number;
   timeOnTaskMin: number;
+  reconCoverage: boolean;
   ageYears: number;
   fitness: string;
   conditions: string[];
+};
+
+type Drone = {
+  id: string;
+  kind: "recon" | "response";
+  lat: number;
+  lng: number;
+  status: "on_station" | "en_route" | "arrived";
+  coverageRadiusM: number | null;
+  assignedTo: string | null;
+  etaSec: number | null;
+};
+
+type Dispatch = {
+  id: string;
+  targetCallsign: string;
+  targetLat: number;
+  targetLng: number;
+  dispatchedAtMs: number;
 };
 
 type Scene = {
@@ -88,6 +112,8 @@ type Scene = {
   perimeterRadii: number[];
   geo: Geo;
   crew: Crew[];
+  drones: Drone[];
+  droneBase: { lat: number; lng: number };
   provenance: Record<string, string>;
   incidentRecord: Record<string, string | number | null>;
 };
@@ -102,6 +128,7 @@ const PROVENANCE_ORDER: { key: string; label: string; tier: "REAL" | "UNVERIFIED
   { key: "intermediateShape", label: "Intermediate perimeters", tier: "SYNTHETIC" },
   { key: "atmosphere", label: "Smoke and heat", tier: "SYNTHETIC" },
   { key: "crewPositions", label: "Crew positions", tier: "SYNTHETIC" },
+  { key: "drones", label: "Drones", tier: "SYNTHETIC" },
 ];
 
 const TIER_COLOUR = {
@@ -129,6 +156,17 @@ function ringFrom(radii: number[], offsetM: number, geo: Geo): number[][] {
   return ring;
 }
 
+/** A circle on the ground, for drawing a recon drone's sensor footprint. */
+function circleRing(lat: number, lng: number, radiusM: number, points = 64): number[][] {
+  const ring: number[][] = [];
+  const mPerDegLng = 111_320 * Math.cos((lat * Math.PI) / 180);
+  for (let i = 0; i <= points; i += 1) {
+    const a = (i / points) * Math.PI * 2;
+    ring.push([lng + (Math.cos(a) * radiusM) / mPerDegLng, lat + (Math.sin(a) * radiusM) / 110_540]);
+  }
+  return ring;
+}
+
 function polygon(coordinates: number[][][]): GeoJSON.Feature {
   return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates } };
 }
@@ -152,6 +190,7 @@ export function CommanderView() {
   const container = useRef<HTMLDivElement | null>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Record<string, maplibregl.Marker>>({});
+  const droneMarkers = useRef<Record<string, maplibregl.Marker>>({});
   const inFlight = useRef(false);
   const pending = useRef(false);
 
@@ -164,6 +203,10 @@ export function CommanderView() {
   const [placements, setPlacements] = useState<
     { callsign: string; lat: number; lng: number }[] | null
   >(null);
+  /** Response drones the commander has launched. Never automatic. */
+  const [dispatches, setDispatches] = useState<Dispatch[]>([]);
+  const dispatchesRef = useRef<Dispatch[]>([]);
+  dispatchesRef.current = dispatches;
 
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
@@ -191,6 +234,7 @@ export function CommanderView() {
           atMs: whenMs ?? Date.parse("2025-01-08T14:00:00Z"),
         };
         if (crew !== null) body.crew = crew;
+        if (dispatchesRef.current.length > 0) body.dispatches = dispatchesRef.current;
 
         const response = await fetch("/api/demo/scene", {
           method: "POST",
@@ -219,7 +263,7 @@ export function CommanderView() {
   // list here: this re-runs only when the time or the crew placements change.
   useEffect(() => {
     void load(atMs, placements);
-  }, [atMs, placements, load]);
+  }, [atMs, placements, dispatches, load]);
 
   /* --- Create the map once ------------------------------------------------ */
   useEffect(() => {
@@ -311,6 +355,28 @@ export function CommanderView() {
           paint: { "line-color": "#FF7A1A", "line-width": 2.5 },
         });
 
+        // Recon sensor footprints. Drawn above the risk bands because they
+        // explain them: inside a footprint the air data is current, outside it
+        // the readings age and confidence falls.
+        m.addSource("recon", { type: "geojson", data: EMPTY });
+        m.addLayer({
+          id: "recon-fill",
+          type: "fill",
+          source: "recon",
+          paint: { "fill-color": RECON_COLOUR, "fill-opacity": 0.07 },
+        });
+        m.addLayer({
+          id: "recon-line",
+          type: "line",
+          source: "recon",
+          paint: {
+            "line-color": RECON_COLOUR,
+            "line-width": 1.5,
+            "line-dasharray": [2, 3],
+            "line-opacity": 0.85,
+          },
+        });
+
         setReady(true);
       } catch (error) {
         console.error("[valoris] layer init failed", error);
@@ -359,7 +425,9 @@ export function CommanderView() {
       clearInterval(poll);
       observer.disconnect();
       for (const marker of Object.values(markers.current)) marker.remove();
+      for (const marker of Object.values(droneMarkers.current)) marker.remove();
       markers.current = {};
+      droneMarkers.current = {};
       m.remove();
       map.current = null;
       setReady(false);
@@ -545,6 +613,67 @@ export function CommanderView() {
         delete markers.current[callsign];
       }
     }
+
+    /* --- Drones ---------------------------------------------------------- */
+    const reconFeatures: GeoJSON.Feature[] = [];
+    const seenDrones = new Set<string>();
+
+    for (const drone of scene.drones) {
+      seenDrones.add(drone.id);
+
+      if (drone.kind === "recon" && drone.coverageRadiusM !== null) {
+        reconFeatures.push(
+          polygon([circleRing(drone.lat, drone.lng, drone.coverageRadiusM)]),
+        );
+      }
+
+      const colour = drone.kind === "recon" ? RECON_COLOUR : RESPONSE_COLOUR;
+      const glyph = drone.kind === "recon" ? "R" : "▲";
+      const label =
+        drone.kind === "recon"
+          ? drone.id
+          : `${drone.id} → ${drone.assignedTo ?? "?"}${
+              drone.status === "en_route" ? ` ETA ${drone.etaSec}s` : " ON SCENE"
+            }`;
+
+      let marker = droneMarkers.current[drone.id];
+      if (marker === undefined) {
+        const el = document.createElement("div");
+        el.style.pointerEvents = "none";
+        marker = new maplibregl.Marker({ element: el })
+          .setLngLat([drone.lng, drone.lat])
+          .addTo(m);
+        droneMarkers.current[drone.id] = marker;
+      } else {
+        marker.setLngLat([drone.lng, drone.lat]);
+      }
+
+      marker.getElement().innerHTML = `
+        <div style="position:relative;width:0;height:0">
+          <div style="
+            position:absolute;left:0;top:0;transform:translate(-50%,-50%);
+            width:16px;height:16px;border-radius:3px;
+            background:rgba(5,6,15,0.85);border:2px solid ${colour};
+            display:flex;align-items:center;justify-content:center;
+            font:700 9px ui-monospace,monospace;color:${colour};
+          ">${glyph}</div>
+          <div style="
+            position:absolute;left:14px;top:0;transform:translateY(-50%);
+            background:rgba(5,6,15,0.8);padding:1px 4px;border-radius:3px;
+            font:600 9px ui-monospace,monospace;color:${colour};white-space:nowrap;
+          ">${label}</div>
+        </div>`;
+    }
+
+    for (const [id, marker] of Object.entries(droneMarkers.current)) {
+      if (!seenDrones.has(id)) {
+        marker.remove();
+        delete droneMarkers.current[id];
+      }
+    }
+
+    const reconSource = m.getSource("recon") as maplibregl.GeoJSONSource | undefined;
+    reconSource?.setData({ type: "FeatureCollection", features: reconFeatures });
   }, [scene, ready, selected, selectedCrew]);
 
   /**
@@ -582,6 +711,34 @@ export function CommanderView() {
   const start = scene?.timelineStartMs ?? Date.parse("2025-01-07T18:30:00Z");
   const end = scene?.timelineEndMs ?? Date.parse("2025-01-31T18:00:00Z");
   const current = atMs ?? scene?.atMs ?? start;
+
+  /** A response drone already launched for this crew member, if any. */
+  const dispatchFor = (callsign: string): Dispatch | undefined =>
+    dispatches.find((d) => d.targetCallsign === callsign);
+
+  const droneFor = (callsign: string): Drone | undefined =>
+    scene?.drones.find((d) => d.kind === "response" && d.assignedTo === callsign);
+
+  /*
+    Dispatch is a COMMANDER ACTION and never automatic.
+
+    Valoris does not withdraw anyone and does not launch anything on its own. It
+    can show that a crew member is falling back and put dispatch one click away;
+    deciding to send the drone stays with the person accountable for it.
+  */
+  const dispatchTo = (member: Crew) => {
+    const now = atMs ?? scene?.atMs ?? Date.now();
+    setDispatches((current) => [
+      ...current.filter((d) => d.targetCallsign !== member.callsign),
+      {
+        id: `RESP-${member.callsign}`,
+        targetCallsign: member.callsign,
+        targetLat: member.lat,
+        targetLng: member.lng,
+        dispatchedAtMs: now,
+      },
+    ]);
+  };
 
   const chip = (zone: string) => ({
     background: `${ZONE_COLOUR[zone as keyof typeof ZONE_COLOUR] ?? ZONE_COLOUR.UNKNOWN}22`,
@@ -645,34 +802,26 @@ export function CommanderView() {
             </button>
           </div>
 
+          {/*
+            One compact strip instead of the old paragraph block, which covered
+            most of the map on anything narrower than a wide desktop. The
+            explanations it carried now live in the "What here is real?"
+            disclosure; all that has to be on the map is WHOSE zones these are,
+            because that is not inferable from the bands themselves.
+          */}
           <div
-            className="pointer-events-none absolute left-2 top-2 max-w-[22rem] rounded px-2 py-1.5 text-[10px] leading-relaxed"
+            className="pointer-events-none absolute bottom-2 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded px-2.5 py-1 font-mono text-[11px]"
             style={{
-              background: "rgba(5,6,15,0.88)",
-              color: COLOURS.muted,
+              background: "rgba(5,6,15,0.9)",
               border: `1px solid ${COLOURS.border}`,
+              color: COLOURS.muted,
             }}
           >
-            <div style={{ color: COLOURS.text, fontWeight: 700 }}>
-              Risk zones for {selected}
-            </div>
-            The bands belong to <b style={{ color: COLOURS.text }}>{selected}</b> alone —
-            they come from this firefighter&apos;s health profile, so selecting someone
-            else redraws them.
-            <br />
-            <span style={{ color: COLOURS.text }}>● solid dot</span> = the subject, whose
-            colour matches the band it stands in. <span
-              style={{ color: COLOURS.text }}
-            >○ hollow ring</span> = another crew member&apos;s own verdict, which can
-            differ from the band beneath them. Two people on the same ground with
-            different colours is the point, not a fault.
-            <br />
-            <span style={{ color: "#FF7A1A" }}>▬ fire</span> · shape is the REAL NIFC
-            perimeter; growth between snapshots is interpolated and is{" "}
-            <b>not a fire prediction</b>
-            <br />
-            <span style={{ color: COLOURS.text }}>Drag any crew marker</span> to ask what
-            happens if you move them.
+            <span style={{ color: COLOURS.muted }}>ZONES FOR </span>
+            <span style={{ color: COLOURS.text, fontWeight: 700 }}>{selected}</span>
+            <span style={{ color: ZONE_COLOUR.DANGER }}> ● danger</span>
+            <span style={{ color: ZONE_COLOUR.CAUTION }}> ● caution</span>
+            <span style={{ color: ZONE_COLOUR.SAFE }}> ● safe</span>
           </div>
         </div>
 
@@ -729,6 +878,51 @@ export function CommanderView() {
                   <div className="mt-0.5 font-mono text-[10px]" style={{ color: COLOURS.muted }}>
                     HR {member.hrBpm} · SpO2 {member.spo2Pct}% · core {member.coreTempC} °C ·
                     COHb {member.cohbPct}%
+                  </div>
+
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[9px] font-bold"
+                      style={{
+                        color: member.reconCoverage ? RECON_COLOUR : COLOURS.muted,
+                        border: `1px solid ${member.reconCoverage ? RECON_COLOUR : COLOURS.border}`,
+                      }}
+                      title={
+                        member.reconCoverage
+                          ? "A recon drone is refreshing the air picture here, so CO and PM2.5 are current."
+                          : "No recon overhead. Air readings age out, so confidence is reduced."
+                      }
+                    >
+                      {member.reconCoverage ? "RECON" : "NO RECON"}
+                    </span>
+                    <span className="text-[9px]" style={{ color: COLOURS.muted }}>
+                      confidence {member.confidence}
+                    </span>
+
+                    {dispatchFor(member.callsign) === undefined ? (
+                      <button
+                        className="ml-auto rounded px-2 py-0.5 text-[9px] font-bold"
+                        style={{
+                          border: `1px solid ${RESPONSE_COLOUR}`,
+                          color: RESPONSE_COLOUR,
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          dispatchTo(member);
+                        }}
+                      >
+                        DISPATCH DRONE
+                      </button>
+                    ) : (
+                      <span
+                        className="ml-auto rounded px-2 py-0.5 text-[9px] font-bold"
+                        style={{ color: RESPONSE_COLOUR, border: `1px solid ${RESPONSE_COLOUR}` }}
+                      >
+                        {droneFor(member.callsign)?.status === "en_route"
+                          ? `EN ROUTE ${droneFor(member.callsign)?.etaSec}s`
+                          : "ON SCENE"}
+                      </span>
+                    )}
                   </div>
                 </button>
               );

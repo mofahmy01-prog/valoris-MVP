@@ -229,6 +229,40 @@ what happens when a heart-rate sensor stops reporting.
 npm run lint && npm run typecheck && npm test
 ```
 
+## Drones
+
+Two kinds, doing two different jobs. Only one of them touches the risk score.
+
+**Reconnaissance drones are a sensor platform.** Three orbit a standoff outside
+the fire edge, repositioning as it grows. A firefighter inside a recon footprint
+has *current* air data; one outside does not, so their environmental channels age
+past the 60-second stale threshold and the existing staleness rules drop their
+confidence. No new scoring path and no special case in the engine — the drone
+earns its place through machinery that was already there.
+
+It also answers a question the demo previously dodged: where was a live CO and
+PM2.5 reading at one firefighter's exact position supposed to be coming from?
+
+The effect is visible immediately. At 9 Jan, five of six crew sit under coverage
+and read `medium` confidence; CHARLIE-2 sits outside it, drops to `low`, and the
+band becomes **`UNKNOWN` rather than `SAFE`** — the "low confidence can never
+produce SAFE" rule, triggered by a gap in drone coverage rather than by a broken
+sensor.
+
+**Response drones carry equipment to a named firefighter.** They launch from a
+staging area south-west of the fire at 20 m/s, and their position is interpolated
+from the dispatch time, so scrubbing back before a dispatch correctly shows the
+drone still at base.
+
+They are dispatched **by the commander**, from a button on that crew member's
+row, and never automatically. Valoris does not withdraw anyone and does not
+launch anything on its own; it can show that a crew member is falling back and
+make dispatch one click away. That is the limit, and it is rule 9 in the list
+below.
+
+> **No drone integration exists.** No airframe, autopilot, vendor or datalink is
+> modelled. Both kinds are Tier C and labelled so in the provenance panel.
+
 ## Data inputs
 
 Four input groups reach `assessRisk`, defined in

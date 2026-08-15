@@ -34,6 +34,12 @@ import {
   TIMELINE_START_MS,
   toLngLat,
 } from "@/lib/sim/palisades";
+import {
+  baseAt,
+  reconDronesAt,
+  responseDronesAt,
+  type DroneDispatch,
+} from "@/lib/sim/drones";
 import { assessCrewMember, MAX_OFFSET_M, type CrewPlacement } from "@/lib/sim/scene";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +55,23 @@ const bodySchema = z.object({
       }),
     )
     .max(50)
+    .optional(),
+  /**
+   * Response drones the commander has launched. Carried in the request like
+   * everything else, so the scene stays a pure function of its inputs and
+   * scrubbing back before a dispatch correctly shows the drone still at base.
+   */
+  dispatches: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        targetCallsign: z.string().min(1),
+        targetLat: z.number().gte(-90).lte(90),
+        targetLng: z.number().gte(-180).lte(180),
+        dispatchedAtMs: z.number().int().finite(),
+      }),
+    )
+    .max(20)
     .optional(),
 });
 
@@ -119,13 +142,18 @@ export async function POST(request: Request) {
       ? parsed.data.crew
       : defaultPlacements();
 
+  const recon = reconDronesAt(atMs);
+  const dispatches: DroneDispatch[] = parsed.data.dispatches ?? [];
+  const response = responseDronesAt(atMs, dispatches);
+  const [baseLng, baseLat] = baseAt(atMs);
+
   const crew = [];
   for (const placement of placements) {
     const row = firefighters.find((f) => f.callsign === placement.callsign);
     if (row === undefined) continue;
 
     const profile = toHealthProfile(row);
-    const assessment = assessCrewMember(profile, placement, atMs);
+    const assessment = assessCrewMember(profile, placement, atMs, recon);
 
     crew.push({
       ...assessment,
@@ -164,6 +192,14 @@ export async function POST(request: Request) {
     },
 
     crew,
+
+    /**
+     * Recon drones on station, plus any response drones the commander has
+     * launched. Recon footprints are what decide whether a firefighter's air
+     * data is current; see the provenance note below.
+     */
+    drones: [...recon, ...response],
+    droneBase: { lat: baseLat, lng: baseLng },
 
     /**
      * Facts lifted verbatim from the interagency incident record, stored in
@@ -206,6 +242,8 @@ export async function POST(request: Request) {
         "SYNTHETIC (Tier C) — exponential falloff of CO, PM2.5 and heat with hand-chosen scale lengths. No wind, terrain or plume model. This drives the ABSOLUTE contour distances, so treat the ordering between firefighters as meaningful and the metres as illustrative.",
       crewPositions: "INVENTED for the demonstration. Real deployment positions are not public.",
       riskEngine: "REAL — production assessRisk and derivePhysiology, unmodified.",
+      drones:
+        "SYNTHETIC (Tier C) — no drone integration exists. No airframe, autopilot, vendor or datalink is modelled. Recon footprints decide only whether a firefighter's air data is treated as current; response drones are dispatched by the commander and never automatically.",
     },
   });
 }
