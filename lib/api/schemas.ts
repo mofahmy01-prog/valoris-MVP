@@ -13,6 +13,7 @@ import {
   COMMANDER_ACTIONS,
   ESCAPE_ROUTE_STATUSES,
   FIRE_PROVIDER_KEYS,
+  INCIDENT_OUTCOMES,
   OBSERVATION_SOURCES,
 } from "@/lib/db/enums";
 
@@ -217,3 +218,36 @@ export const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
 });
+
+/* -------------------------------------------------------------------------- */
+/* Outcomes                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What actually happened to one firefighter, recorded at incident close.
+ *
+ * `recordedBy` is required and has no default. Outcomes are captured
+ * prospectively by the person closing the incident; they are never inferred
+ * from an observation log and never derived from the engine's own output.
+ *
+ * `interventionOccurred` is deliberately optional and tri-state. Absent means
+ * NOT RECORDED, which is not the same as `false` — a firefighter withdrawn
+ * before the outcome was observed is a censored observation, and treating an
+ * unrecorded intervention as "no intervention" would quietly corrupt any future
+ * calibration.
+ */
+export const recordOutcomeSchema = z
+  .object({
+    callsign: z.string().trim().min(1),
+    outcome: z.enum(INCIDENT_OUTCOMES),
+    interventionOccurred: z.boolean().optional(),
+    notes: z.string().trim().max(2000).optional(),
+    recordedBy: z.string().trim().min(1).max(120),
+  })
+  .strict();
+
+export const recordOutcomesSchema = z
+  .object({
+    outcomes: z.array(recordOutcomeSchema).min(1).max(100),
+  })
+  .strict();

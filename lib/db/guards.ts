@@ -58,6 +58,47 @@ BEGIN
 END`,
   },
   {
+    name: "IncidentOutcome_no_update",
+    purpose: "IncidentOutcome is append-only",
+    createSql: `CREATE TRIGGER "IncidentOutcome_no_update"
+BEFORE UPDATE ON "IncidentOutcome"
+BEGIN
+  SELECT RAISE(ABORT, 'IncidentOutcome is append-only: UPDATE is not permitted');
+END`,
+  },
+  {
+    name: "IncidentOutcome_no_delete",
+    purpose: "IncidentOutcome is append-only",
+    createSql: `CREATE TRIGGER "IncidentOutcome_no_delete"
+BEFORE DELETE ON "IncidentOutcome"
+BEGIN
+  SELECT RAISE(ABORT, 'IncidentOutcome is append-only: DELETE is not permitted');
+END`,
+  },
+  {
+    name: "IncidentOutcome_recorded_by_required",
+    purpose: "An outcome must name who recorded it",
+    createSql: `CREATE TRIGGER "IncidentOutcome_recorded_by_required"
+BEFORE INSERT ON "IncidentOutcome"
+WHEN NEW."recordedBy" IS NULL OR TRIM(NEW."recordedBy") = ''
+BEGIN
+  SELECT RAISE(ABORT, 'An outcome must name who recorded it');
+END`,
+  },
+  {
+    name: "IncidentOutcome_value_allowed",
+    purpose: "Outcome must be one of the recorded values, and never blank",
+    createSql: `CREATE TRIGGER "IncidentOutcome_value_allowed"
+BEFORE INSERT ON "IncidentOutcome"
+WHEN NEW."outcome" NOT IN (
+  'nothing', 'rehab_required', 'heat_exhaustion', 'near_miss',
+  'medical_attention', 'hospital_transport', 'unknown'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Outcome is not one of the recorded values');
+END`,
+  },
+  {
     name: "CommanderAction_reason_required_insert",
     purpose: "A reject or override requires a non-empty reason",
     createSql: `CREATE TRIGGER "CommanderAction_reason_required_insert"

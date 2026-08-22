@@ -2,16 +2,20 @@
 
 **SIMULATION MODE — NOT FOR OPERATIONAL USE.**
 
-An honest list. Current as of Milestone 1 (risk engine only).
+An honest list. Current as of the operational build.
 
 ## Not built yet
 
-Milestones 3–6 are not started. There is no simulator, no map, no commander
-dashboard, no forecasting, no recommendation *generation* and no post-incident
-report. The web app renders only the model assumptions table.
+**Recommendation generation.** The action routes exist and enforce the reason
+rule at three layers, but nothing creates a recommendation. The engine produces
+a band and drivers; turning those into an advisory a commander can accept or
+reject is not built.
 
-Recommendation routes exist and enforce the reason rule, but nothing creates
-recommendations yet — that is Milestone 6.
+**Post-incident report.** No export, no review surface.
+
+Built since this list was first written, and no longer to be read as absent: the
+simulator, the map, the commander view, per-firefighter risk contours, the
+time-to-threshold projection, and the fire-perimeter timeline. See the README.
 
 ## Fire behaviour
 

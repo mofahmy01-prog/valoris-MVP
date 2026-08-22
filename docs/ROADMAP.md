@@ -7,9 +7,19 @@ it blocks. Nothing here is implemented.
 
 ---
 
-## 1. Outcome capture — REQUIRED BEFORE ANY PILOT
+## 1. Outcome capture — BUILT
 
-**Milestone 6. Decision must be made before a pilot, not after.**
+**Status: the table, the guards and the endpoint exist.** `IncidentOutcome`,
+`POST`/`GET /api/incidents/[id]/outcomes`, and ten invariant tests in
+`lib/db/outcomes.test.ts`. Every constraint listed below was designed in rather
+than deferred; the notes on each are kept because they explain why the shape is
+what it is, and because constraints 2 and 3 are analysis obligations that code
+cannot enforce on its own.
+
+What is still absent is **data**. The schema can hold outcomes; nobody has
+recorded any. Calibration remains blocked until a real incident produces rows.
+
+**Milestone 6. Decision was made before a pilot, not after.**
 
 At incident close, per firefighter, record whether anything actually happened:
 

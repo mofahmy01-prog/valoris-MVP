@@ -55,6 +55,28 @@ export const ACTIONS_REQUIRING_REASON: readonly CommanderActionKind[] = [
   "override",
 ];
 
+/**
+ * What actually happened to a firefighter, recorded at incident close.
+ *
+ * `unknown` is deliberately a value rather than an absence. An unrecorded
+ * outcome must never collapse into `nothing`: absent labels would bias any
+ * future calibration toward "nobody gets hurt", which is the same failure mode
+ * as absent sensor data reading as `SAFE`. See `docs/ROADMAP.md` item 1.
+ *
+ * Never derive one of these from the model's own output. A `CRITICAL` band is
+ * not an outcome, and the circularity would be invisible and fatal.
+ */
+export const INCIDENT_OUTCOMES = [
+  "nothing",
+  "rehab_required",
+  "heat_exhaustion",
+  "near_miss",
+  "medical_attention",
+  "hospital_transport",
+  "unknown",
+] as const;
+export type IncidentOutcomeKind = (typeof INCIDENT_OUTCOMES)[number];
+
 export const AUDIT_EVENT_TYPES = [
   "incident_created",
   "incident_started",
@@ -71,6 +93,7 @@ export const AUDIT_EVENT_TYPES = [
   "sensor_toggled",
   "scenario_injected",
   "fire_front_provider_selected",
+  "outcome_recorded",
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENT_TYPES)[number];
 

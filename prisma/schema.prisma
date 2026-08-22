@@ -75,14 +75,15 @@ model Incident {
   startedAtUtc DateTime?
   stoppedAtUtc DateTime?
 
-  organisation    Organisation           @relation(fields: [organisationId], references: [id])
-  crews           Crew[]
-  deployments     Deployment[]
-  observations    Observation[]
-  riskAssessments RiskAssessmentRecord[]
-  recommendations Recommendation[]
+  organisation     Organisation           @relation(fields: [organisationId], references: [id])
+  crews            Crew[]
+  deployments      Deployment[]
+  observations     Observation[]
+  riskAssessments  RiskAssessmentRecord[]
+  recommendations  Recommendation[]
   commanderActions CommanderAction[]
-  auditEvents     AuditEvent[]
+  auditEvents      AuditEvent[]
+  outcomes         IncidentOutcome[]
 
   @@index([organisationId])
 }
@@ -105,9 +106,9 @@ model Deployment {
   crewId               String
   firefighterProfileId String
 
-  sector         String?
-  assignedAtUtc  DateTime  @default(now())
-  releasedAtUtc  DateTime?
+  sector        String?
+  assignedAtUtc DateTime  @default(now())
+  releasedAtUtc DateTime?
 
   incident        Incident               @relation(fields: [incidentId], references: [id])
   crew            Crew                   @relation(fields: [crewId], references: [id])
@@ -115,6 +116,7 @@ model Deployment {
   observations    Observation[]
   riskAssessments RiskAssessmentRecord[]
   recommendations Recommendation[]
+  outcome         IncidentOutcome?
 
   @@unique([incidentId, firefighterProfileId])
   @@index([incidentId])
@@ -192,11 +194,11 @@ model Observation {
 
   // Position and equipment channels go stale exactly like vitals. Without
   // these, a frozen GPS or SCBA feed would contribute to a confident score.
-  positionFixUpdatedAtUtc          DateTime?
-  distanceToFireFrontUpdatedAtUtc  DateTime?
-  distanceToSafeZoneUpdatedAtUtc   DateTime?
-  escapeRouteUpdatedAtUtc          DateTime?
-  scbaPressureUpdatedAtUtc         DateTime?
+  positionFixUpdatedAtUtc         DateTime?
+  distanceToFireFrontUpdatedAtUtc DateTime?
+  distanceToSafeZoneUpdatedAtUtc  DateTime?
+  escapeRouteUpdatedAtUtc         DateTime?
+  scbaPressureUpdatedAtUtc        DateTime?
 
   /// Whether PPE was worn. Drives the heat-balance clothing terms.
   wearingPpe Boolean @default(true)
@@ -238,20 +240,20 @@ model Observation {
   // observation mixing a real perimeter with synthetic physiology is both, and
   // blurring that is exactly what the Data Addendum forbids.
   // `dataTierSummary` lists every tier present, e.g. "A+C".
-  dataTierSummary          String  @default("C")
-  environmentDataTier      String  @default("C_SYNTHETIC_MODEL_DRIVEN")
-  vitalsDataTier           String  @default("C_SYNTHETIC_MODEL_DRIVEN")
-  positionDataTier         String  @default("C_SYNTHETIC_MODEL_DRIVEN")
-  physiologyDataTier       String  @default("C_SYNTHETIC_MODEL_DRIVEN")
-  fireFrontDataTier        String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  dataTierSummary     String  @default("C")
+  environmentDataTier String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  vitalsDataTier      String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  positionDataTier    String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  physiologyDataTier  String  @default("C_SYNTHETIC_MODEL_DRIVEN")
+  fireFrontDataTier   String  @default("C_SYNTHETIC_MODEL_DRIVEN")
   /// Full per-domain Provenance records, as specified in the Data Addendum.
-  provenanceJson           String  @default("{}")
-  isFullySimulated         Boolean @default(true)
+  provenanceJson      String  @default("{}")
+  isFullySimulated    Boolean @default(true)
 
   // Provenance of the fire front this observation's distance was measured
   // against, so a stored distance can always be traced to its source.
-  fireProviderKey       String?
-  fireFrontConfidence   String?
+  fireProviderKey     String?
+  fireFrontConfidence String?
 
   incident        Incident               @relation(fields: [incidentId], references: [id])
   deployment      Deployment             @relation(fields: [deploymentId], references: [id])
@@ -262,10 +264,10 @@ model Observation {
 }
 
 model RiskAssessmentRecord {
-  id            String   @id @default(uuid())
-  incidentId    String
-  deploymentId  String
-  observationId String
+  id              String   @id @default(uuid())
+  incidentId      String
+  deploymentId    String
+  observationId   String
   calculatedAtUtc DateTime
 
   scoreValue Float
@@ -323,12 +325,12 @@ model Recommendation {
 
   // monitor | rotate | withdraw | preposition_relief | restore_scba |
   // check_sensor | medical_review | insufficient_data
-  type           String
-  priorityRank   Int
-  rationale      String
-  suggestedAction String
+  type             String
+  priorityRank     Int
+  rationale        String
+  suggestedAction  String
   alternativesJson String // JSON string[]
-  confidence     String // high | medium | low
+  confidence       String // high | medium | low
 
   // open | acknowledged | accepted | rejected | overridden | expired
   status String @default("open")
@@ -367,8 +369,8 @@ model CommanderAction {
 /// Append-only. No update or delete path is exposed anywhere in the codebase,
 /// and SQLite triggers reject both.
 model AuditEvent {
-  id           String   @id @default(uuid())
-  incidentId   String?
+  id            String   @id @default(uuid())
+  incidentId    String?
   occurredAtUtc DateTime @default(now())
 
   eventType  String
@@ -380,4 +382,52 @@ model AuditEvent {
 
   @@index([incidentId, occurredAtUtc])
   @@index([eventType])
+}
+
+/// What actually happened to one firefighter on one incident.
+///
+/// THE GATING RECORD FOR ANY PILOT. Without it the observation log is an
+/// unlabelled time series: it can show what the model said, never whether the
+/// model was right. Every calibration question in docs/CLINICAL_ASSUMPTIONS.md
+/// is unanswerable until this table has rows.
+///
+/// Append-only and attributed, like Observation and AuditEvent, and enforced by
+/// SQLite triggers rather than convention. An outcome edited after the fact is
+/// worthless as evidence.
+///
+/// PHI. This is health information about an identified person and attracts the
+/// same handling requirements as glucose data.
+model IncidentOutcome {
+  id           String @id @default(uuid())
+  incidentId   String
+  deploymentId String @unique
+
+  /// One of INCIDENT_OUTCOMES. `unknown` is a recorded value, never an absence.
+  outcome String
+
+  /// Was this firefighter withdrawn, rested or otherwise intervened on before
+  /// the outcome was observed?
+  ///
+  /// Censors the observation for calibration: a firefighter pulled out on a
+  /// CRITICAL band who then suffers nothing is not evidence the band was wrong,
+  /// it may be evidence the withdrawal worked. Null means NOT RECORDED, which is
+  /// not the same as false. Whether a Valoris recommendation specifically was
+  /// accepted is derived from CommanderAction, which stays the authoritative
+  /// record; this field also covers a commander acting on their own judgement.
+  interventionOccurred Boolean?
+
+  /// Free text from whoever closed the incident.
+  notes String?
+
+  recordedAtUtc DateTime @default(now())
+
+  /// Who recorded it. Outcomes are captured prospectively by a person; they are
+  /// never inferred from an observation log or from the engine's own output.
+  recordedBy String
+
+  incident   Incident   @relation(fields: [incidentId], references: [id])
+  deployment Deployment @relation(fields: [deploymentId], references: [id])
+
+  @@index([incidentId])
+  @@index([outcome])
 }

@@ -76,6 +76,23 @@ Not built: recommendation *generation*, post-incident report. The
 recommendation action routes exist and enforce the reason rule; nothing creates
 recommendations yet.
 
+**Outcome capture is built and is the gating record for any pilot.** At incident
+close, each firefighter gets one appended, attributed outcome — `nothing`,
+`rehab_required`, `heat_exhaustion`, `near_miss`, `medical_attention`,
+`hospital_transport` or `unknown`. Without it the observation log is an
+unlabelled time series that can show what the model *said* but never whether it
+was *right*, and every calibration question in
+[docs/CLINICAL_ASSUMPTIONS.md](docs/CLINICAL_ASSUMPTIONS.md) stays unanswerable.
+
+Four things are enforced rather than intended. `unknown` is a recorded value,
+never an absence, so an unrecorded outcome cannot collapse into "nobody got
+hurt" — the endpoint reports `outstanding` separately. Outcomes are attributed:
+`recordedBy` has no default and blank is rejected by a database trigger.
+Outcomes are append-only, with UPDATE and DELETE refused by triggers rather than
+by convention. And nothing in the route reads a risk band: a `CRITICAL` band is
+not an outcome, and deriving one from the model's own output would be circular
+and invisible.
+
 ## Setup
 
 ```bash
@@ -118,6 +135,8 @@ POST   /api/recommendations/[id]/acknowledge
 POST   /api/recommendations/[id]/accept
 POST   /api/recommendations/[id]/reject       ← reason required, 400 if empty
 POST   /api/recommendations/[id]/override     ← reason required, 400 if empty
+POST   /api/incidents/[id]/outcomes        ← what actually happened, append-only
+GET    /api/incidents/[id]/outcomes
 GET    /api/audit
 GET    /api/health
 
