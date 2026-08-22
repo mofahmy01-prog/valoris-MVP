@@ -957,7 +957,23 @@ function deriveConfidence(
 
   let confidence: Confidence = "high";
   if (freshness.missing.length > 0) confidence = degradeConfidence(confidence, 1);
-  if (freshness.stale.length >= 2) confidence = degradeConfidence(confidence, 1);
+
+  /*
+    A MISSING channel counts at least as heavily as a stale one.
+
+    This second penalty used to be counted over `stale` alone, while the first
+    was a boolean over `missing`. That combination rewarded losing data: delete a
+    stale channel and it left the stale list, dropping the count below the
+    threshold and removing this penalty, while the missing penalty above was
+    already saturated and added nothing in its place. Confidence therefore rose
+    from `low` to `medium` on strictly less information.
+
+    Counting both lists together restores the invariant the property test
+    `assessRisk — removing an input is never rewarded` exists to protect: a
+    channel can move from stale to missing, but it can never leave the tally.
+  */
+  const degradedChannels = freshness.stale.length + freshness.missing.length;
+  if (degradedChannels >= 2) confidence = degradeConfidence(confidence, 1);
 
   if (vitals.coreTempIsEstimated === true) {
     // An estimate is never grounds for full confidence.

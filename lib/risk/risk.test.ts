@@ -391,6 +391,60 @@ describe("assessRisk — removing an input is never rewarded", () => {
     expect(after.dataQuality.confidence).toBe("low");
     expect(after.dataQuality.missingInputs).toContain("coreTempC");
   });
+
+  /*
+    Regression, shrunk from a fast-check counterexample (seed 839379526).
+
+    The two confidence penalties were asymmetric: "any input missing" was a
+    boolean, while "two or more inputs stale" was a count. Deleting a stale
+    channel moved it out of the stale tally, dropping the count below the
+    threshold and removing that penalty, while the boolean above was already
+    saturated and added nothing in its place. Confidence rose from `low` to
+    `medium` on strictly less information.
+
+    The property test catches this, but only when it happens to generate a
+    scenario whose sole fresh-tracked channel is stale — roughly one run in
+    three to twenty-five. This pins the exact case deterministically.
+  */
+  it("does not raise confidence when a stale channel is deleted", () => {
+    const staleMs = NOW_MS - 61_000;
+
+    const vitals = freshVitals({
+      coreTempC: 35,
+      respRatePerMin: null,
+      fatiguePct: null,
+      hydrationPct: null,
+      lastUpdatedMs: { hrBpm: NOW_MS, spo2Pct: NOW_MS, coreTempC: staleMs },
+    });
+
+    // `ambientTempC` is the only environment channel with any freshness at all,
+    // and it is stale. Everything else is already absent.
+    const withStale = benignEnvironment({
+      ambientTempC: 0,
+      humidityPct: null,
+      coPpm: null,
+      pm25UgM3: null,
+      windSpeedMs: null,
+      windDirDeg: null,
+      lastUpdatedMs: { ambientTempC: staleMs },
+    });
+
+    const [, without] = withInputRemoved(
+      "env.ambientTempC",
+      vitals,
+      withStale,
+      benignPosition(),
+    );
+
+    const before = assessRisk(ALPHA_1, vitals, withStale, benignPosition(), CONFIG, NOW_MS);
+    const after = assessRisk(ALPHA_1, vitals, without, benignPosition(), CONFIG, NOW_MS);
+
+    expect(CONFIDENCE_RANK[after.dataQuality.confidence]).toBeLessThanOrEqual(
+      CONFIDENCE_RANK[before.dataQuality.confidence],
+    );
+    // And the score must not improve either — losing data is never a reward.
+    expect(after.score).toBeGreaterThanOrEqual(before.score - 1e-9);
+  });
 });
 
 /* -------------------------------------------------------------------------- */

@@ -80,7 +80,7 @@ Limitations that follow:
 
    *Planned resolution — see "Sensor dropout projection" below.*
 
-8a. **OPEN DEFECT — deleting a stale channel can RAISE confidence.** A channel
+8a. **FIXED (was: deleting a stale channel could RAISE confidence).** A channel
     that is present but stale counts toward the stale-input tally and drags
     confidence down. The same channel absent entirely, with no entry in
     `lastUpdatedMs`, is scored as missing and escapes that tally, so confidence
@@ -116,11 +116,20 @@ Limitations that follow:
     including the "never report `SAFE` at low confidence" rule, which a spurious
     `medium` would stop protecting.
 
-    **Not fixed.** It is pre-existing, it does not affect the demo, and
-    `lib/risk/` is frozen for the demo build. The fix belongs in the confidence
-    calculation: a missing channel must count at least as heavily as a stale one.
-    Until then, **a confidence figure that improves at the moment a sensor drops
-    out must be read as a fault, not as better information.**
+    **FIXED.** The two penalties were asymmetric: "any input missing" was a
+    boolean, while "two or more inputs stale" was a count. Deleting a stale
+    channel moved it out of the stale tally, dropping the count below the
+    threshold and removing that penalty, while the boolean was already saturated
+    and added nothing in its place. `deriveConfidence` now counts
+    `stale.length + missing.length` together, so a channel can move from stale to
+    missing but can never leave the tally.
+
+    Verified three ways: the deterministic counterexample is pinned as a named
+    regression test in `lib/risk/risk.test.ts`; that test was confirmed to FAIL
+    against the pre-fix engine and pass against the fixed one, so it is
+    load-bearing rather than decorative; and the property suite ran 30
+    consecutive times without a failure, where it previously reproduced within
+    3 to 25 runs.
 
 9. **The engine is stateless.** It has no memory between calls. Trends,
    confirmation windows and latching all have to be supplied by the caller.
