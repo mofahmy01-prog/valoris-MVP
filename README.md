@@ -51,8 +51,9 @@ Built:
 - `lib/physiology/` — reduced ISO 7933 heat balance, Karvonen heart-rate reserve
   with a PPE penalty, and a Kalman core-temperature estimator driven by heart
   rate
-- `lib/sensors/` — the EPA PurpleAir PM2.5 correction and a vendor-agnostic CGM
-  adapter (Dexcom **sandbox** only)
+- `lib/sensors/` — the EPA PurpleAir PM2.5 correction, a vendor-agnostic CGM
+  adapter (Dexcom **sandbox** only), synthetic sensor artefacts, and a
+  vendor-agnostic **wearable adapter seam**
 - `config/` — 86 risk parameters and 64 physiology parameters, each named,
   bounded and provenance-tagged
 - `lib/fire/` — the fire front abstraction and its three providers
@@ -62,7 +63,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 346 tests, including 28 fast-check properties
+- 356 tests, including 28 fast-check properties
 
 Two front ends:
 
@@ -338,6 +339,36 @@ the incident record and still reported; it is just not the end of the scrub.
 Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
 an `UNKNOWN` state** — if the engine does not currently know where someone
 stands, projecting forward would dress a gap up as foresight.
+
+## Connecting a wearable
+
+`lib/sensors/wearable/` is the vendor-agnostic seam for physiological monitors,
+built the same way `CgmAdapter` was: the engine never learns which vendor is
+attached, so integrating a real device is one file rather than a rewrite.
+
+**No vendor client is shipped.** `UnconfiguredWearableAdapter` **refuses** rather
+than falling back to the simulator — a stub that quietly degrades teaches callers
+the real thing is present when it is not, and on a fireground that is the
+difference between "no data" and "data you believe". Its refusal names what a
+real integration actually needs: data-sharing terms, the transport, per-channel
+cadence, the device's quality flags, a DPIA — and whether the device reports
+**measurement time or only receipt time**.
+
+That last one is not a detail. Every staleness rule, the projection horizon and
+the confidence machinery key off when the *device* took the reading. A vendor
+that reports only receipt time makes all of them wrong by the transport latency,
+so `measuredAtIsReceiptTime` exists to make that expressible rather than absorbed
+in silence.
+
+The seam also carries operational facts, not just vitals: battery level, because
+a monitor at 3% is a warning rather than a surprise, and vendor quality flags,
+passed through rather than discarded. An unrecognised device id resolves to
+`null` and is never silently attributed to a firefighter.
+
+> A simulated adapter is Tier C. A real device on a real firefighter is a tier
+> this project does not yet have a name for — Tier B explicitly means
+> *non-firefighter* subjects, and reusing it would be wrong. That gap is recorded
+> rather than papered over.
 
 ## Named scenarios
 
