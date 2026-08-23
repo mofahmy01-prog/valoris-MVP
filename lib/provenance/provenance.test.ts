@@ -20,6 +20,7 @@ import {
   type DataTier,
   type ObservationProvenance,
   type Provenance,
+  TIER_D_PRECONDITIONS,
 } from "./types";
 
 const ALL_SYNTHETIC: ObservationProvenance = {
@@ -36,12 +37,34 @@ const MIXED_WITH_REAL_PERIMETER: ObservationProvenance = {
 };
 
 describe("data tiers", () => {
-  it("has exactly the three tiers the addendum specifies", () => {
+  it("keeps the addendum's three tiers, plus D added deliberately", () => {
+    /*
+      The addendum specifies A, B and C, and this test originally asserted
+      exactly three so the set could not drift by accident.
+
+      D is a deliberate divergence, not drift. The addendum had no label for the
+      thing the project exists to handle — a real reading from a real
+      firefighter on a real incident. Tier B is explicitly NON-firefighter
+      subjects, so reusing it would be a false claim, and Tier A is
+      environmental. Without D the first genuine reading would have been
+      mislabelled on the day it arrived.
+
+      Nothing is Tier D today, and TIER_D_PRECONDITIONS lists what must be true
+      before anything can be.
+    */
     expect(DATA_TIERS).toEqual([
       "A_REAL_ENVIRONMENTAL",
       "B_REAL_WEARABLE_NON_FIREFIGHTER",
       "C_SYNTHETIC_MODEL_DRIVEN",
+      "D_REAL_FIREFIGHTER",
     ]);
+  });
+
+  it("has nothing labelled Tier D anywhere in the build", () => {
+    // The tier exists so that reaching it is a deliberate act. If this test
+    // ever fails, a real firefighter's data has entered the system and every
+    // precondition in TIER_D_PRECONDITIONS must already be satisfied.
+    expect(TIER_D_PRECONDITIONS.length).toBeGreaterThan(0);
   });
 
   it("labels, badges and disclosures cover every tier", () => {
@@ -167,6 +190,37 @@ describe("mislabelling is rejected at construction", () => {
         "test",
       ),
     ).toThrow(/cannot be marked isSimulated/);
+  });
+
+  it("refuses Tier D marked simulated — real firefighter data is not synthetic", () => {
+    // Tier D was added after the other three. Without an explicit case here it
+    // would have inherited no rule at all and passed silently.
+    expect(() =>
+      assertProvenanceCoherent(
+        { dataTier: "D_REAL_FIREFIGHTER", source: "device-001", isSimulated: true },
+        "test",
+      ),
+    ).toThrow(/cannot be marked isSimulated/);
+  });
+
+  it("states that Tier D being real does not make it validated", () => {
+    // The most likely misreading of a "real data" tier is that the numbers it
+    // is scored against have been checked. They have not.
+    expect(TIER_DISCLOSURE.D_REAL_FIREFIGHTER).toMatch(
+      /being real does not make it validated/i,
+    );
+    expect(TIER_DISCLOSURE.D_REAL_FIREFIGHTER).toMatch(/remain unreviewed/i);
+  });
+
+  it("names the preconditions before anything may be labelled Tier D", () => {
+    // None of these can be satisfied by code, which is the point of listing
+    // them where an implementer will meet them first.
+    const joined = TIER_D_PRECONDITIONS.join(" ");
+    expect(joined).toMatch(/lawful basis/i);
+    expect(joined).toMatch(/Data Protection Impact Assessment/i);
+    expect(joined).toMatch(/consent/i);
+    expect(joined).toMatch(/named clinician/i);
+    expect(joined).toMatch(/retention and deletion/i);
   });
 
   it("refuses an unnamed source", () => {

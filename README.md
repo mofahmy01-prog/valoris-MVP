@@ -63,7 +63,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 356 tests, including 28 fast-check properties
+- 360 tests, including 28 fast-check properties
 
 Two front ends:
 
@@ -188,6 +188,7 @@ tiers are never collapsed into one:
 | **A** | Real measured environmental data (NIFC, Open-Meteo, PurpleAir, FIRMS) | Only when an operator supplies a real perimeter GeoJSON |
 | **B** | Real wearable data from **non-firefighter** subjects (WESAD, PAMAP2) | **Not in use.** No noise model has been built, so nothing claims it |
 | **C** | Synthetic, model-driven output | Everything else: environment, crew positions, vitals, physiology |
+| **D** | Real physiological data from an **identified firefighter** | **Nothing.** Added so the first real reading cannot be mislabelled — see below |
 
 `GET /api/incidents/[id]/snapshot` returns the data provenance strip:
 
@@ -200,7 +201,29 @@ Physiology       SIMULATED   C · SIMULATED   valoris_physiology_models
 ```
 
 A Tier C record marked `isSimulated: false` — synthetic data presented as real —
-throws at construction. So does a Tier A record marked simulated.
+throws at construction. So does a Tier A, B or D record marked simulated. Every
+tier is checked explicitly rather than by grouping the "real" ones, so adding a
+tier without deciding its rule leaves a visible gap instead of silently
+inheriting someone else's. Tier D initially had no case and a real-firefighter
+record marked simulated would have passed.
+
+**On Tier D.** The addendum specified three tiers and a test asserted exactly
+three, so the set could not drift by accident. D is a deliberate divergence: the
+addendum had no label for the thing this project exists to handle — a real
+reading from a real firefighter. Tier B means explicitly *non-firefighter*
+subjects, and Tier A is environmental, so the first genuine reading would have
+been mislabelled on the day it arrived.
+
+Nothing is Tier D today, and `TIER_D_PRECONDITIONS` lists what must be true
+first: a lawful basis, a DPIA, freely-given revocable consent, agreement with
+the representative body, a named clinician accountable for the thresholds, a
+retention and deletion schedule that is actually implemented, and a decision on
+who sees what — a commander does not automatically need a diagnosis. None of
+those can be satisfied by code, which is why they sit in the type layer where an
+implementer meets them first.
+
+Being real would not make it validated: the thresholds are unchanged and remain
+unreviewed.
 
 ### What is real in the Palisades demo
 

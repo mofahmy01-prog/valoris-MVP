@@ -23,15 +23,51 @@
  * No imports. Pure types and pure functions.
  */
 
+/**
+ * Where a value came from.
+ *
+ * `D_REAL_FIREFIGHTER` exists because the tiers had no correct label for the
+ * thing the whole project is aimed at: a real reading from a real firefighter on
+ * a real incident. Tier B is explicitly NON-firefighter subjects, so reusing it
+ * for firefighter data would be a false claim, and Tier A is environmental.
+ * Without a fourth tier the first genuine reading would have been mislabelled on
+ * the day it arrived, which is exactly the kind of silent drift the tier system
+ * exists to prevent.
+ *
+ * NOTHING IS TIER D TODAY and nothing may become Tier D until the governance in
+ * `TIER_D_PRECONDITIONS` is satisfied. It is defined now so that arriving at
+ * that day is a deliberate act rather than a default.
+ */
 export type DataTier =
   | "A_REAL_ENVIRONMENTAL"
   | "B_REAL_WEARABLE_NON_FIREFIGHTER"
-  | "C_SYNTHETIC_MODEL_DRIVEN";
+  | "C_SYNTHETIC_MODEL_DRIVEN"
+  | "D_REAL_FIREFIGHTER";
 
 export const DATA_TIERS: readonly DataTier[] = [
   "A_REAL_ENVIRONMENTAL",
   "B_REAL_WEARABLE_NON_FIREFIGHTER",
   "C_SYNTHETIC_MODEL_DRIVEN",
+  "D_REAL_FIREFIGHTER",
+];
+
+/**
+ * What must be true before any value may be labelled Tier D.
+ *
+ * These are not engineering tasks. Tier D means identifiable health data about
+ * a named employee, captured during work, displayed to their commander — every
+ * item here is a legal or ethical precondition, and code cannot satisfy any of
+ * them. They are listed in the type layer so that a future implementer meets
+ * them before writing the adapter rather than after.
+ */
+export const TIER_D_PRECONDITIONS: readonly string[] = [
+  "A lawful basis for processing identifiable health data, documented.",
+  "A completed Data Protection Impact Assessment.",
+  "Informed consent from each firefighter, freely given and revocable without detriment.",
+  "Agreement with the representative body, where one exists.",
+  "A named clinician accountable for the thresholds the data will be scored against.",
+  "A retention and deletion schedule, with deletion actually implemented.",
+  "A decision on who may see what: a commander does not automatically need a diagnosis.",
 ];
 
 /** Exactly the shape the addendum specifies. */
@@ -71,6 +107,7 @@ export const TIER_LABEL: Record<DataTier, string> = {
   B_REAL_WEARABLE_NON_FIREFIGHTER:
     "Tier B — REAL wearable data from non-firefighter subjects",
   C_SYNTHETIC_MODEL_DRIVEN: "Tier C — SIMULATED, model-driven",
+  D_REAL_FIREFIGHTER: "Tier D — REAL firefighter physiological data",
 };
 
 /** Short badge for dense UI. Never just a colour — always the letter too. */
@@ -78,6 +115,7 @@ export const TIER_BADGE: Record<DataTier, string> = {
   A_REAL_ENVIRONMENTAL: "A · REAL",
   B_REAL_WEARABLE_NON_FIREFIGHTER: "B · REAL (not firefighter)",
   C_SYNTHETIC_MODEL_DRIVEN: "C · SIMULATED",
+  D_REAL_FIREFIGHTER: "D · REAL (firefighter)",
 };
 
 /**
@@ -91,6 +129,8 @@ export const TIER_DISCLOSURE: Record<DataTier, string> = {
     "Signal characteristics derived from WESAD/PAMAP2 (non-firefighter human subjects). Not firefighter physiological data.",
   C_SYNTHETIC_MODEL_DRIVEN:
     "Synthetic output of a deterministic physiological model. Not measured. Not clinically validated.",
+  D_REAL_FIREFIGHTER:
+    "Real physiological data from an identified firefighter. Identifiable health data about a named person, subject to consent, a lawful basis and a retention schedule. Being real does not make it validated: the thresholds it is scored against are unchanged and remain unreviewed.",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -258,9 +298,15 @@ export function provenanceStrip(
 /* -------------------------------------------------------------------------- */
 
 /**
- * A Tier A record must not claim to be simulated, and a Tier C record must not
+ * A real tier must not claim to be simulated, and a synthetic tier must not
  * claim to be real. This catches the single most damaging mislabelling — a
  * synthetic value presented as a measurement — at the point of construction.
+ *
+ * Every tier is checked explicitly rather than by grouping "real" tiers
+ * together, so adding a tier without deciding its coherence rule leaves a
+ * visible gap rather than silently inheriting someone else's rule. Tier D was
+ * added and initially had no case here: a real-firefighter record marked
+ * simulated would have passed.
  */
 export function assertProvenanceCoherent(p: Provenance, context: string): void {
   if (p.dataTier === "A_REAL_ENVIRONMENTAL" && p.isSimulated) {
@@ -276,6 +322,11 @@ export function assertProvenanceCoherent(p: Provenance, context: string): void {
   if (p.dataTier === "B_REAL_WEARABLE_NON_FIREFIGHTER" && p.isSimulated) {
     throw new Error(
       `${context}: Tier B is real recorded human data and cannot be marked isSimulated`,
+    );
+  }
+  if (p.dataTier === "D_REAL_FIREFIGHTER" && p.isSimulated) {
+    throw new Error(
+      `${context}: Tier D is real firefighter data and cannot be marked isSimulated`,
     );
   }
   if (p.source.trim() === "") {
