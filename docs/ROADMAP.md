@@ -141,11 +141,24 @@ sequence:
 | 3c | Tier A/B/C provenance labelling | **Done** |
 | 3d-prime | Kalman core temp, citations, confidence effect, SCBA unification | **Done** |
 | 3d | PurpleAir EPA correction | **Done** |
-| 3e | Dexcom sandbox behind a vendor-agnostic `CgmAdapter` | Next |
-| 3f | Tier B noise models | Not started |
-| 3g | Tier A fixture loader + `scripts/fetch-historical.ts` | Not started |
-| 3h | Five live scenarios + injection controls | Not started |
-| 3i | Palisades replay | Not started — the credibility artefact, do not drop |
+| 3e | Dexcom sandbox behind a vendor-agnostic `CgmAdapter` | **Done** |
+| 3f | Tier B noise models | Not started — Tier B is still unused and nothing claims it |
+| 3g | Tier A fixture loader + `scripts/fetch-historical.ts` | **Partial** — real NIFC perimeter and incident record are loaded from `data/historical/palisades-2025/`, but no fetch script exists; the data was retrieved by hand |
+| 3h | Five live scenarios + injection controls | **Partial** — wind shift, sensor kill and sensor restore exist on `/live`; the five named scenarios do not |
+| 3i | Palisades replay | **Done differently** — delivered as the scrubbable commander view rather than a scripted replay |
+
+### The sequence was not followed
+
+Milestone 3 was interrupted by a demo build, and Milestone 6 items — outcome
+capture and recommendation generation — were completed before 3f, 3g and 3h.
+That is recorded here rather than tidied away, because the gaps are real and
+someone reading the milestone numbers would otherwise assume they were filled.
+
+**Milestone 5 is the largest outstanding piece**, and it contains the sensor
+dropout projection described in `docs/CLINICAL_ASSUMPTIONS.md` item 13. The
+projection that exists today forecasts when the FIRE reaches a firefighter; it
+does not estimate what a DROPPED SENSOR would have read. Those are different
+problems and only the first is built.
 
 ## 4. Unscheduled items from the Data Addendum
 
