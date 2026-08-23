@@ -58,11 +58,11 @@ Built:
 - `lib/fire/` — the fire front abstraction and its three providers
 - `lib/sim/` — the Palisades scene: real perimeter geometry, and a deterministic
   evaluator that is a pure function of (time, crew positions)
-- `prisma/schema.prisma` — ten tables, UUID keys, UTC timestamps, units in field
-  names, `Observation` and `AuditEvent` append-only **enforced by SQLite
-  triggers**
-- Twenty API routes under `/app/api`, every body Zod-validated
-- 274 tests, including 27 fast-check properties
+- `prisma/schema.prisma` — eleven tables, UUID keys, UTC timestamps, units in
+  field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
+  **enforced by SQLite triggers**
+- Twenty-one API routes under `/app/api`, every body Zod-validated
+- 298 tests, including 27 fast-check properties
 
 Two front ends:
 
@@ -72,9 +72,9 @@ Two front ends:
   path that pushes observations through `POST /observations` with validation,
   provenance and the audit log.
 
-Not built: recommendation *generation*, post-incident report. The
-recommendation action routes exist and enforce the reason rule; nothing creates
-recommendations yet.
+Not built: post-incident report. Recommendation *generation* now exists as a
+pure module (`lib/recommend/`) but is not yet wired into the observation feed,
+so nothing writes a `Recommendation` row.
 
 **Outcome capture is built and is the gating record for any pilot.** At incident
 close, each firefighter gets one appended, attributed outcome — `nothing`,
