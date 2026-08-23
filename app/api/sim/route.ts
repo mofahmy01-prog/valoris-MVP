@@ -13,8 +13,10 @@ import { z } from "zod";
 import {
   simInjectWindShift,
   simKillSensor,
+  simLoadScenario,
   simNoiseProfile,
   simNoiseProfileName,
+  simScenario,
   simPause,
   simReset,
   simRestoreSensors,
@@ -27,11 +29,13 @@ import { CALLSIGNS, KILLABLE_CHANNELS } from "@/lib/sim/simulator";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  action: z.enum(["start", "pause", "reset", "speed", "inject", "noise"]),
+  action: z.enum(["start", "pause", "reset", "speed", "inject", "noise", "scenario"]),
   speed: z.number().optional(),
   inject: z.enum(["wind_shift", "kill_sensor", "restore_sensors"]).optional(),
   /** How badly the sensors misbehave. Tier C texture, never Tier B. */
   noiseProfile: z.enum(["clean", "typical", "degraded"]).optional(),
+  /** Named scenario to load. Resets the incident to its starting conditions. */
+  scenario: z.string().min(1).optional(),
   callsign: z.enum(CALLSIGNS as [string, ...string[]]).optional(),
   channel: z.enum(KILLABLE_CHANNELS as unknown as [string, ...string[]]).optional(),
 });
@@ -58,6 +62,10 @@ function summarise() {
      * WESAD/PAMAP2 signal characteristics.
      */
     noiseProfile: simNoiseProfileName(),
+    scenario: (() => {
+      const sc = simScenario();
+      return sc === null ? null : { key: sc.key, title: sc.title, expect: sc.expect };
+    })(),
     killed: Object.values(s.firefighters)
       .filter((f) => f.killedChannels.length > 0)
       .map((f) => ({ callsign: f.callsign, channels: f.killedChannels })),
@@ -84,7 +92,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { action, speed, inject, callsign, channel, noiseProfile } = parsed.data;
+  const { action, speed, inject, callsign, channel, noiseProfile, scenario } =
+    parsed.data;
 
   switch (action) {
     case "start":
@@ -95,6 +104,18 @@ export async function POST(request: Request) {
       break;
     case "reset":
       await simReset(baseUrlFrom(request));
+      break;
+    case "scenario":
+      if (scenario !== undefined) {
+        try {
+          await simLoadScenario(scenario, baseUrlFrom(request));
+        } catch (error) {
+          return NextResponse.json(
+            { error: error instanceof Error ? error.message : "unknown scenario" },
+            { status: 400 },
+          );
+        }
+      }
       break;
     case "noise":
       if (noiseProfile !== undefined) simNoiseProfile(noiseProfile);

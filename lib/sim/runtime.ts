@@ -12,6 +12,8 @@
 
 import { SyntheticArtefactModel, type NoiseProfileName } from "@/lib/sensors/noise/engine";
 
+import { scenarioByKey, stepsDueBetween, type Scenario } from "./scenarios";
+
 import {
   advance,
   atmosphereFor,
@@ -68,6 +70,8 @@ type Runtime = {
    */
   noise: SyntheticArtefactModel;
   noiseProfile: NoiseProfileName;
+  /** The named scenario driving this run, if any. */
+  scenario: Scenario | null;
 };
 
 const globalForSim = globalThis as unknown as { valorisSim?: Runtime };
@@ -81,6 +85,7 @@ function runtime(): Runtime {
       // Default to clean, so existing behaviour is unchanged until asked for.
       noise: new SyntheticArtefactModel("clean"),
       noiseProfile: "clean",
+      scenario: null,
     };
   }
   return globalForSim.valorisSim;
@@ -238,8 +243,30 @@ function startTimer(rt: Runtime): void {
   rt.timer = setInterval(() => {
     if (!rt.state.running) return;
     // Speed multiplies incident minutes per wall-clock tick.
+    const beforeMinute = rt.state.incidentMinutes;
     for (let i = 0; i < rt.state.speed; i += 1) {
       rt.state = advance(rt.state);
+    }
+
+    /*
+      Fire any scenario steps whose moment has passed.
+
+      Checked as a RANGE rather than an equality, because at 20x the clock jumps
+      twenty incident minutes per tick and a step scheduled at minute 12 would
+      simply never be equal to the clock. A scenario that silently skips its own
+      events is worse than no scenario.
+    */
+    if (rt.scenario !== null) {
+      for (const step of stepsDueBetween(
+        rt.scenario,
+        beforeMinute,
+        rt.state.incidentMinutes,
+      )) {
+        if (step.action === "wind_shift") simInjectWindShift();
+        else if (step.action === "kill_sensor") simKillSensor(step.callsign, step.channel);
+        else if (step.action === "restore_sensors") simRestoreSensors(step.callsign);
+        else if (step.action === "noise") simNoiseProfile(step.profile);
+      }
     }
     void postTick(rt).catch((error: unknown) => {
       rt.state.lastError = error instanceof Error ? error.message : String(error);
@@ -322,6 +349,29 @@ export function simNoiseProfile(profile: NoiseProfileName): SimState {
 
 export function simNoiseProfileName(): NoiseProfileName {
   return runtime().noiseProfile;
+}
+
+/**
+ * Load a named scenario and reset to its starting conditions.
+ *
+ * Resetting is not optional. A scenario that started from whatever the previous
+ * run left behind would not be reproducible, which is the entire reason these
+ * exist.
+ */
+export async function simLoadScenario(key: string, baseUrl: string): Promise<SimState> {
+  const scenario = scenarioByKey(key);
+  if (scenario === undefined) throw new Error(`Unknown scenario "${key}"`);
+
+  const rt = runtime();
+  await simReset(baseUrl);
+  rt.scenario = scenario;
+  rt.noise = new SyntheticArtefactModel(scenario.noiseProfile);
+  rt.noiseProfile = scenario.noiseProfile;
+  return rt.state;
+}
+
+export function simScenario(): Scenario | null {
+  return runtime().scenario;
 }
 
 export function simSpeed(speed: number): SimState {

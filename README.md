@@ -62,7 +62,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 337 tests, including 28 fast-check properties
+- 346 tests, including 28 fast-check properties
 
 Two front ends:
 
@@ -163,6 +163,7 @@ POST   /api/demo/scene                        ← the commander view: (time, cre
 GET    /api/demo/contours                     ← per-firefighter band boundaries
 GET    /api/demo/compare
 GET    /api/demo/burn-perimeter
+GET    /api/demo/scenarios                    ← the five named scenarios
 GET    /api/sim   POST /api/sim               ← the tick-based /live simulator
 ```
 
@@ -337,6 +338,33 @@ the incident record and still reported; it is just not the end of the scrub.
 Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
 an `UNKNOWN` state** — if the engine does not currently know where someone
 stands, projecting forward would dress a gap up as foresight.
+
+## Named scenarios
+
+Five situations, each exercising a different part of the engine rather than
+looking dramatic. Declarative and replayable — a demo you drive by hand is one
+you cannot repeat or compare against last week.
+
+```bash
+curl -X POST localhost:3000/api/sim -d '{"action":"scenario","scenario":"sensor_dropout"}'
+curl -X POST localhost:3000/api/sim -d '{"action":"start"}'
+```
+
+| Scenario | Exercises |
+|---|---|
+| `baseline` | The false-alarm budget. Nothing happens. **Any `CRITICAL` here is a defect, not a demonstration** |
+| `wind_shift` | Proximity, environment and the projection — risk arrives before the vitals do |
+| `glucose_fall` | The one channel scored *only* for a monitored firefighter |
+| `asthmatic_in_plume` | Personalisation directly: identical air, two different bands |
+| `sensor_dropout` | Projection, staleness, confidence and the never-`SAFE` rules |
+
+Each carries what to watch for, readable before you run it via
+`GET /api/demo/scenarios`.
+
+Measured on `sensor_dropout`: CHARLIE-1 had 22 of 29 assessments projected from
+their own readings, other crew picked up 1–4 from degraded hardware, and
+**SAFE-while-projected was 0 for every firefighter** — the never-`SAFE`
+invariant holding across all 174 assessments, not only in unit tests.
 
 ## Sensor artefacts — making the feed fail like hardware
 
