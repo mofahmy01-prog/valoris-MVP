@@ -14,6 +14,7 @@
 
 import { prisma } from "@/lib/db/client";
 import { appendAuditEvent } from "@/lib/db/audit";
+import { persistRecommendations } from "@/lib/recommend/persist";
 import { notFound, ok, parseJsonBody } from "@/lib/api/respond";
 import { postObservationsSchema } from "@/lib/api/schemas";
 import { distanceToPerimeterM } from "@/lib/fire/geometry";
@@ -445,7 +446,7 @@ export async function POST(
       recordedAt.getTime(),
     );
 
-    await prisma.riskAssessmentRecord.create({
+    const assessmentRecord = await prisma.riskAssessmentRecord.create({
       data: {
         incidentId: incident.id,
         deploymentId: deployment.id,
@@ -513,6 +514,33 @@ export async function POST(
         },
       },
       occurredAtUtc: recordedAt,
+    });
+
+    /*
+      Advice, generated from the assessment that was just stored.
+
+      Deliberately after persistence: a recommendation cites an assessment
+      record, so the thing it points at has to exist first. Suppression against
+      already-open advice lives in persistRecommendations — without it this
+      feed would raise the same recommendation every few seconds and the queue
+      would become unreadable.
+    */
+    // Plain nullable number on the position payload, not a Channel.
+    const scbaPct = input.position.scbaPressurePct ?? null;
+    await persistRecommendations({
+      incidentId: incident.id,
+      deploymentId: deployment.id,
+      riskAssessmentRecordId: assessmentRecord.id,
+      assessment,
+      context: {
+        callsign: deployment.firefighter.callsign,
+        scbaPressurePct: scbaPct,
+        // The observation feed reports separation clamped at zero, so "inside
+        // the perimeter" is not distinguishable here. Left undefined rather
+        // than guessed — the commander view supplies it where it is known.
+      },
+      atMs: recordedAt.getTime(),
+      actorLabel: "system",
     });
 
     const previousBand = previous?.band ?? null;

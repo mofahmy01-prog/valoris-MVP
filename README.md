@@ -72,9 +72,21 @@ Two front ends:
   path that pushes observations through `POST /observations` with validation,
   provenance and the audit log.
 
-Not built: post-incident report. Recommendation *generation* now exists as a
-pure module (`lib/recommend/`) but is not yet wired into the observation feed,
-so nothing writes a `Recommendation` row.
+Not built: post-incident report.
+
+**Recommendation generation is live.** `lib/recommend/` turns an assessment into
+ranked, explainable advice, and the observation feed writes it. Three rules are
+enforced and tested: Valoris advises rather than instructs, so every
+recommendation carries alternatives; advice never claims more certainty than the
+assessment under it; and an `UNKNOWN` band produces "find out" rather than a
+withdrawal, because withdrawing on absent evidence teaches crews the system
+panics while silence teaches them a dead sensor is fine.
+
+Advice is deduplicated per firefighter and reason, and expires after ten
+minutes. Measured on a live feed: **132 assessments produced 13 recommendations,
+90.2% suppressed**, with one audit row per creation and no orphans. Without that
+the queue fills with identical rows in minutes, which is how a safety system
+gets muted.
 
 **Outcome capture is built and is the gating record for any pilot.** At incident
 close, each firefighter gets one appended, attributed outcome — `nothing`,
