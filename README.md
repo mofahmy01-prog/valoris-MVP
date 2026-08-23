@@ -69,6 +69,7 @@ Two front ends:
 
 - **`/`** — the commander view. Scrub the real Palisades timeline, drag crew
   around the map, and read three personalised risk zones per firefighter.
+- **`/report/[id]`** — the rendered post-incident report, reachable from `/live`.
 - **`/live`** — the tick-based simulator. Slower and narrower, but it is the only
   path that pushes observations through `POST /observations` with validation,
   provenance and the audit log.
@@ -156,7 +157,7 @@ POST   /api/recommendations/[id]/reject       ← reason required, 400 if empty
 POST   /api/recommendations/[id]/override     ← reason required, 400 if empty
 POST   /api/incidents/[id]/outcomes        ← what actually happened, append-only
 GET    /api/incidents/[id]/outcomes
-GET    /api/incidents/[id]/report          ← post-incident review
+GET    /api/incidents/[id]/report          ← post-incident review (JSON)
 GET    /api/audit
 GET    /api/health
 
@@ -438,7 +439,9 @@ the system raising `check_sensor` and `insufficient_data` on its own.
 
 ## Post-incident report
 
-`GET /api/incidents/[id]/report` assembles the evidential chain:
+Rendered at `/report/[id]`, and as JSON at `GET /api/incidents/[id]/report`. Both
+call the same builder, so they cannot disagree. It assembles the evidential
+chain:
 
 > what the model **said** → what the commander **did** → what actually **happened**
 

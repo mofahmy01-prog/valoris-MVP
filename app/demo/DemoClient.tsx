@@ -279,9 +279,27 @@ export function DemoClient() {
           )}
         </div>
 
+        {/*
+          The report link only appears once there is an incident to report on.
+          A dead link to an empty report teaches people the feature is broken.
+        */}
+        {status?.incidentId !== null && status?.incidentId !== undefined && (
+          <a
+            href={`/report/${status.incidentId}`}
+            className="ml-auto rounded px-3 py-2 text-xs"
+            style={{ border: `1px solid ${COLOURS.border}`, color: COLOURS.text }}
+          >
+            Post-incident report
+          </a>
+        )}
+
         <a
           href="/assumptions"
-          className="ml-auto rounded px-3 py-2 text-xs"
+          className={
+            status?.incidentId === null || status?.incidentId === undefined
+              ? "ml-auto rounded px-3 py-2 text-xs"
+              : "rounded px-3 py-2 text-xs"
+          }
           style={{ border: `1px solid ${COLOURS.border}`, color: COLOURS.muted }}
         >
           Model assumptions

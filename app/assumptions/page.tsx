@@ -29,9 +29,11 @@ export default function Home() {
           Build status
         </h2>
         <p className="mt-2 text-sm text-slate-400">
-          Milestone 1 complete: the deterministic risk engine in{" "}
-          <code className="text-slate-200">lib/risk/</code>. No database, API, simulator,
-          dashboard, forecasting or reporting yet.
+          The deterministic risk engine lives in{" "}
+          <code className="text-slate-200">lib/risk/</code>. Also built: the database and
+          API, the physiology pipeline, the commander view, dropped-channel projection,
+          recommendation generation, outcome capture and the post-incident report. Not
+          built: a validated threshold anywhere in this table.
         </p>
         <p className="mt-2 text-sm text-slate-400">
           Model <span className="text-slate-200">{DEFAULT_RISK_CONFIG.modelVersion}</span>{" "}
