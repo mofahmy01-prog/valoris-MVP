@@ -22,7 +22,6 @@
       "max": 600,
       "editable": true
     },
-
     "estimated_core_temp_sd_confidence_drop_c": {
       "value": 0.35,
       "unit": "C",
@@ -63,7 +62,6 @@
       "max": 95,
       "editable": true
     },
-
     "weight_physiological": {
       "value": 0.4,
       "unit": "fraction",
@@ -104,7 +102,6 @@
       "max": 1,
       "editable": true
     },
-
     "override_spo2_critical_pct": {
       "value": 88,
       "unit": "%",
@@ -165,7 +162,6 @@
       "max": 1000,
       "editable": true
     },
-
     "phys_weight_hr": {
       "value": 0.3,
       "unit": "fraction",
@@ -336,7 +332,6 @@
       "max": 180,
       "editable": true
     },
-
     "phys_weight_glucose": {
       "value": 0.25,
       "unit": "fraction",
@@ -617,7 +612,6 @@
       "max": 40,
       "editable": true
     },
-
     "prof_weight_respiratory": {
       "value": 0.25,
       "unit": "fraction",
@@ -808,7 +802,6 @@
       "max": 100,
       "editable": true
     },
-
     "resp_risk_spo2_alert_shift_pct_per_level": {
       "value": 1,
       "unit": "percentage points per level",
@@ -867,6 +860,56 @@
       "rationale": "At a cumulative heat exposure index of 1.0, ambient heat limits tighten by this many degrees.",
       "min": 0,
       "max": 15,
+      "editable": true
+    },
+    "projection_min_samples": {
+      "value": 3,
+      "unit": "count",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fewest measured readings before a dropped channel may be projected at all. Two points define a line through noise; three is the minimum that can disagree. Placeholder pending review — CLINICAL_ASSUMPTIONS item 13 flags minimum history depth as needing per-channel review.",
+      "min": 2,
+      "max": 12,
+      "editable": true
+    },
+    "projection_history_window_sec": {
+      "value": 300,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "How far back measured readings are gathered to fit the slope. Long enough to see a trend through breath-by-breath variation, short enough that it reflects the current work period. Unreviewed.",
+      "min": 60,
+      "max": 900,
+      "editable": true
+    },
+    "projection_max_horizon_sec": {
+      "value": 120,
+      "unit": "s",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "How long a projection may run after the channel goes dark before it expires back to worst case. A projection must not continue indefinitely on a slope nobody is measuring any more. Unreviewed.",
+      "min": 15,
+      "max": 600,
+      "editable": true
+    },
+    "projection_slope_agreement_frac": {
+      "value": 0.7,
+      "unit": "fraction",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Fraction of consecutive measured deltas that must share the fitted slope's sign before the trend is treated as real rather than noise. Strict monotonicity is unachievable on physiological data; this is the agreed compromise and is unreviewed.",
+      "min": 0.5,
+      "max": 1.0,
+      "editable": true
+    },
+    "projection_min_slope_per_min": {
+      "value": 0.05,
+      "unit": "unit/min",
+      "sourceStatus": "illustrative",
+      "clinicalReviewStatus": "unreviewed",
+      "rationale": "Below this magnitude the fitted slope is treated as flat and the projection holds the last measured value rather than extrapolating. Stops sensor noise being amplified into a trend. Unreviewed.",
+      "min": 0.0,
+      "max": 5.0,
       "editable": true
     }
   }

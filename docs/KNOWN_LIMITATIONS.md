@@ -164,7 +164,7 @@ Limitations that follow:
 15. **Condition count, not severity.** Four mild conditions score the same as one
     severe one.
 
-## Sensor dropout projection — decided, not yet built
+## Sensor dropout projection — module built, not yet wired
 
 Today a channel that stops reporting is scored as **worst case**. That is safe
 but uninformative, and it is the cause of limitations 6 and 8 above.
@@ -199,11 +199,19 @@ Scope and constraints:
 - **No new scoring path.** Projection feeds the existing `assessRisk`, using the
   same least-squares machinery as Milestone 5's forecasting.
 
-**Where it lands:** Milestone 5, alongside forecasting. Milestone 2's
-append-only `Observation` table is the rolling history it reads from, so no
-engine change is needed before then.
+**State: the projection module exists** — `lib/projection/`, with the governing
+rule under a fast-check property test at 300 runs, and refusals for an
+unprojectable channel, thin history, an exceeded horizon and a disagreeing
+slope. `glucoseMmolL` is deliberately excluded: it is dangerous in both
+directions, so "the worse of two values" needs a clinical judgement nobody has
+made.
 
-**Until it lands**, dropouts behave as described in limitations 6 and 8.
+**It is NOT yet wired into `assessRisk`.** Nothing in the live path calls it, so
+dropouts still behave exactly as described in limitations 6 and 8. Wiring it
+requires the engine to carry a `projected` input state distinct from measured
+and stale, degrade confidence for it, and refuse `SAFE` when a projected channel
+is critical — none of which exists yet. Until that lands, this module changes no
+output.
 
 ## Database guards are fragile under migration
 

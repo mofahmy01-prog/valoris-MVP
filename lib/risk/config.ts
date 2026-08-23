@@ -29,6 +29,17 @@ export const PARAM_NAMES = [
   "missing_after_sec",
   "estimated_core_temp_sd_confidence_drop_c",
 
+  // --- Dropped-channel projection -----------------------------------------
+  // A dark channel is projected from the firefighter's OWN recent measured
+  // readings, and may only ever move in the dangerous direction. See
+  // docs/CLINICAL_ASSUMPTIONS.md item 13 — every one of these is flagged there
+  // as needing per-channel clinical review.
+  "projection_min_samples",
+  "projection_history_window_sec",
+  "projection_max_horizon_sec",
+  "projection_slope_agreement_frac",
+  "projection_min_slope_per_min",
+
   // --- Band cut-offs ------------------------------------------------------
   "band_safe_max_score",
   "band_caution_max_score",
