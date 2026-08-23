@@ -62,7 +62,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 316 tests, including 28 fast-check properties
+- 327 tests, including 28 fast-check properties
 
 Two front ends:
 
@@ -72,7 +72,7 @@ Two front ends:
   path that pushes observations through `POST /observations` with validation,
   provenance and the audit log.
 
-Not built: post-incident report.
+Everything on the original milestone list is now built.
 
 **Recommendation generation is live.** `lib/recommend/` turns an assessment into
 ranked, explainable advice, and the observation feed writes it. Three rules are
@@ -149,6 +149,7 @@ POST   /api/recommendations/[id]/reject       ← reason required, 400 if empty
 POST   /api/recommendations/[id]/override     ← reason required, 400 if empty
 POST   /api/incidents/[id]/outcomes        ← what actually happened, append-only
 GET    /api/incidents/[id]/outcomes
+GET    /api/incidents/[id]/report          ← post-incident review
 GET    /api/audit
 GET    /api/health
 
@@ -330,6 +331,34 @@ the incident record and still reported; it is just not the end of the scrub.
 Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
 an `UNKNOWN` state** — if the engine does not currently know where someone
 stands, projecting forward would dress a gap up as foresight.
+
+## Post-incident report
+
+`GET /api/incidents/[id]/report` assembles the evidential chain:
+
+> what the model **said** → what the commander **did** → what actually **happened**
+
+Any one alone is close to useless. Band history without commander actions cannot
+tell you whether advice was followed; actions without outcomes cannot tell you
+whether following it helped; outcomes without either cannot tell you what anyone
+knew at the time.
+
+Two rules, both tested:
+
+**An absence is never a finding.** A firefighter with no recorded outcome reads
+`NOT RECORDED`, never `nothing`. The completeness block states how much of the
+report is missing before anything else is presented.
+
+**It never implies validation.** Every report carries its limitations, including
+that a band is what the model *said* rather than what was true, and that
+outcomes are interventional — a firefighter withdrawn on `CRITICAL` who then
+suffers nothing is not evidence the band was wrong, it may be evidence the
+withdrawal worked.
+
+It also reports what was measured versus imputed per firefighter, flags a
+configuration change mid-incident as a comparability problem, and keeps the
+*reason* a commander gave for declining advice, since that reason is the whole
+point of having asked.
 
 ## Basemaps
 

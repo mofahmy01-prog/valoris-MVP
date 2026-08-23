@@ -11,7 +11,9 @@ rule at three layers, but nothing creates a recommendation. The engine produces
 a band and drivers; turning those into an advisory a commander can accept or
 reject is not built.
 
-**Post-incident report.** No export, no review surface.
+**Post-incident report UI.** The report is available as
+`GET /api/incidents/[id]/report`; there is no rendered page or export format
+yet.
 
 Built since this list was first written, and no longer to be read as absent: the
 simulator, the map, the commander view, per-firefighter risk contours, the
