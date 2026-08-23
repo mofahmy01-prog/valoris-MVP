@@ -164,7 +164,7 @@ Limitations that follow:
 15. **Condition count, not severity.** Four mild conditions score the same as one
     severe one.
 
-## Sensor dropout projection — module built, not yet wired
+## Sensor dropout projection — engine support built, not yet fed
 
 Today a channel that stops reporting is scored as **worst case**. That is safe
 but uninformative, and it is the cause of limitations 6 and 8 above.
@@ -206,12 +206,20 @@ slope. `glucoseMmolL` is deliberately excluded: it is dangerous in both
 directions, so "the worse of two values" needs a clinical judgement nobody has
 made.
 
-**It is NOT yet wired into `assessRisk`.** Nothing in the live path calls it, so
-dropouts still behave exactly as described in limitations 6 and 8. Wiring it
-requires the engine to carry a `projected` input state distinct from measured
-and stale, degrade confidence for it, and refuse `SAFE` when a projected channel
-is critical — none of which exists yet. Until that lands, this module changes no
-output.
+**The engine now supports it.** `ChannelState` carries `projected` as a
+first-class state distinct from measured and stale; `DataQuality` reports
+`projectedInputs`; confidence is degraded whenever any channel is imputed; and a
+projected CRITICAL channel can never read `SAFE` — projection exists so a
+dropout stops being worst-cased, not so it can be used to clear anyone. The
+reported age stays truthful, because the caller supplies the imputed value
+alongside the ORIGINAL measurement time.
+
+**What is still missing is the feed.** Nothing in the live ingestion path builds
+a channel history, calls `projectChannel`, or populates `projectedChannels`. So
+in practice dropouts still behave as limitations 6 and 8 describe. The remaining
+work is reading each firefighter's recent measured readings out of the
+append-only `Observation` table and passing the result into `assessRisk` — no
+further engine change is needed.
 
 ## Database guards are fragile under migration
 

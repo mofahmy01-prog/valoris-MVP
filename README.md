@@ -62,7 +62,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 311 tests, including 28 fast-check properties
+- 316 tests, including 28 fast-check properties
 
 Two front ends:
 

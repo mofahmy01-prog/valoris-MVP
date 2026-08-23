@@ -34,6 +34,7 @@ function assessment(over: Partial<RiskAssessment> = {}): RiskAssessment {
       missingInputs: [],
       note: "",
       oldestReadingAgeSec: 0,
+      projectedInputs: [],
     },
     modelVersion: "test",
     configHash: "test",
@@ -74,7 +75,7 @@ describe("recommendations — never claim more certainty than the evidence", () 
         assessment({
           band: "CRITICAL",
           score: 90,
-          dataQuality: { confidence, staleInputs: [], missingInputs: [], note: "", oldestReadingAgeSec: 0 },
+          dataQuality: { confidence, staleInputs: [], missingInputs: [], note: "", oldestReadingAgeSec: 0, projectedInputs: [] },
         }),
         CTX,
       );
@@ -87,7 +88,7 @@ describe("recommendations — never claim more certainty than the evidence", () 
       assessment({
         band: "CRITICAL",
         score: 90,
-        dataQuality: { confidence: "low", staleInputs: [], missingInputs: [], note: "", oldestReadingAgeSec: 0 },
+        dataQuality: { confidence: "low", staleInputs: [], missingInputs: [], note: "", oldestReadingAgeSec: 0, projectedInputs: [] },
       }),
       CTX,
     );
@@ -116,6 +117,7 @@ describe("recommendations — not knowing is actionable, and is not a withdrawal
           missingInputs: ["hrBpm", "coPpm"],
           note: "",
           oldestReadingAgeSec: 0,
+          projectedInputs: [],
         },
       }),
       CTX,

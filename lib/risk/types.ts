@@ -89,6 +89,20 @@ export type Vitals = {
    * glucose it represents actually occurred — not when the reading arrived.
    */
   glucoseMmolL?: number | null;
+
+  /**
+   * Channels on this payload whose value was PROJECTED rather than measured.
+   *
+   * Supply the imputed value in the field itself and leave `lastUpdatedMs` at
+   * the ORIGINAL measurement time, so the reported age stays truthful: it really
+   * has been that long since anyone measured it. Listing the channel here is
+   * what stops it being scored at worst case, and what lets every surface
+   * downstream tell an estimate from a reading.
+   *
+   * Projection is produced by `lib/projection/`, which may only ever move a
+   * value in the dangerous direction. See docs/CLINICAL_ASSUMPTIONS.md item 13.
+   */
+  projectedChannels?: string[];
 };
 
 export type Environment = {
@@ -99,6 +113,20 @@ export type Environment = {
   windSpeedMs: number | null;
   windDirDeg: number | null;
   lastUpdatedMs: Record<string, number>;
+
+  /**
+   * Channels on this payload whose value was PROJECTED rather than measured.
+   *
+   * Supply the imputed value in the field itself and leave `lastUpdatedMs` at
+   * the ORIGINAL measurement time, so the reported age stays truthful: it really
+   * has been that long since anyone measured it. Listing the channel here is
+   * what stops it being scored at worst case, and what lets every surface
+   * downstream tell an estimate from a reading.
+   *
+   * Projection is produced by `lib/projection/`, which may only ever move a
+   * value in the dangerous direction. See docs/CLINICAL_ASSUMPTIONS.md item 13.
+   */
+  projectedChannels?: string[];
 };
 
 export type Position = {
@@ -133,12 +161,28 @@ export type Position = {
    * reading from contributing to a confident score.
    */
   lastUpdatedMs?: Record<string, number>;
+
+  /**
+   * Channels on this payload whose value was PROJECTED rather than measured.
+   *
+   * Supply the imputed value in the field itself and leave `lastUpdatedMs` at
+   * the ORIGINAL measurement time, so the reported age stays truthful: it really
+   * has been that long since anyone measured it. Listing the channel here is
+   * what stops it being scored at worst case, and what lets every surface
+   * downstream tell an estimate from a reading.
+   *
+   * Projection is produced by `lib/projection/`, which may only ever move a
+   * value in the dangerous direction. See docs/CLINICAL_ASSUMPTIONS.md item 13.
+   */
+  projectedChannels?: string[];
 };
 
 export type DataQuality = {
   confidence: Confidence;
   staleInputs: string[];
   missingInputs: string[];
+  /** Channels whose value was imputed rather than measured. Never a reading. */
+  projectedInputs: string[];
   oldestReadingAgeSec: number;
   note: string;
 };

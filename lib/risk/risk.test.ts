@@ -448,6 +448,99 @@ describe("assessRisk — removing an input is never rewarded", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Projected channels                                                          */
+/* -------------------------------------------------------------------------- */
+
+describe("assessRisk — a projected channel is not a measurement", () => {
+  // Beyond missing_after_sec (120 s), so without projection the channel is
+  // MISSING and scored at worst case rather than merely stale.
+  const darkMs = NOW_MS - 150_000;
+
+  it("uses a projected value instead of scoring the channel at worst case", () => {
+    const vitals = freshVitals({
+      hrBpm: 150,
+      lastUpdatedMs: { ...freshVitals().lastUpdatedMs, hrBpm: darkMs },
+    });
+
+    const withoutProjection = assessRisk(
+      ALPHA_1, vitals, benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    const withProjection = assessRisk(
+      ALPHA_1,
+      { ...vitals, projectedChannels: ["hrBpm"] },
+      benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+
+    // Without it the channel is missing and scored worst case; with it the
+    // imputed value is used instead.
+    expect(withoutProjection.dataQuality.missingInputs).toContain("hrBpm");
+    expect(withProjection.dataQuality.missingInputs).not.toContain("hrBpm");
+    expect(withProjection.dataQuality.projectedInputs).toContain("hrBpm");
+  });
+
+  it("reports it as projected, never as measured or stale", () => {
+    const result = assessRisk(
+      ALPHA_1,
+      freshVitals({
+        hrBpm: 150,
+        projectedChannels: ["hrBpm"],
+        lastUpdatedMs: { ...freshVitals().lastUpdatedMs, hrBpm: darkMs },
+      }),
+      benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    expect(result.dataQuality.projectedInputs).toEqual(["hrBpm"]);
+    expect(result.dataQuality.staleInputs).not.toContain("hrBpm");
+    expect(result.dataQuality.missingInputs).not.toContain("hrBpm");
+  });
+
+  it("never reads SAFE when a CRITICAL channel is projected", () => {
+    // Everything benign, so this would otherwise be a comfortable SAFE.
+    const result = assessRisk(
+      ALPHA_1,
+      freshVitals({
+        projectedChannels: ["hrBpm"],
+        lastUpdatedMs: { ...freshVitals().lastUpdatedMs, hrBpm: darkMs },
+      }),
+      benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    // Projection exists so a dropout is not worst-cased. It does not exist to
+    // clear anyone.
+    expect(result.band).not.toBe("SAFE");
+  });
+
+  it("does not report full confidence on an imputed picture", () => {
+    const measured = assessRisk(
+      ALPHA_1, freshVitals(), benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    const imputed = assessRisk(
+      ALPHA_1,
+      freshVitals({
+        projectedChannels: ["hrBpm"],
+        lastUpdatedMs: { ...freshVitals().lastUpdatedMs, hrBpm: darkMs },
+      }),
+      benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    expect(CONFIDENCE_RANK[imputed.dataQuality.confidence]).toBeLessThan(
+      CONFIDENCE_RANK[measured.dataQuality.confidence],
+    );
+  });
+
+  it("keeps the reported age truthful — projection does not reset the clock", () => {
+    const result = assessRisk(
+      ALPHA_1,
+      freshVitals({
+        hrBpm: 150,
+        projectedChannels: ["hrBpm"],
+        lastUpdatedMs: { ...freshVitals().lastUpdatedMs, hrBpm: darkMs },
+      }),
+      benignEnvironment(), benignPosition(), CONFIG, NOW_MS,
+    );
+    // It really has been 150 seconds since anyone measured this.
+    expect(result.dataQuality.oldestReadingAgeSec).toBeGreaterThanOrEqual(149);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Personalisation                                                             */
 /* -------------------------------------------------------------------------- */
 

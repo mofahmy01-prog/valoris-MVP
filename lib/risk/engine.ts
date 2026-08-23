@@ -147,12 +147,21 @@ function criticalChannelsFor(profile: HealthProfile): readonly string[] {
     : CRITICAL_CHANNELS;
 }
 
-type ChannelState = "ok" | "stale" | "missing";
+/**
+ * `projected` is a first-class state, distinct from measured and from stale.
+ *
+ * A projected channel HAS a usable value — imputed from that firefighter's own
+ * recent readings — but it was never measured, and the picture must never
+ * present it as though it was. See lib/projection/ and CLINICAL_ASSUMPTIONS
+ * item 13.
+ */
+type ChannelState = "ok" | "stale" | "missing" | "projected";
 
 type Freshness = {
   state: Record<string, ChannelState>;
   stale: string[];
   missing: string[];
+  projected: string[];
   oldestAgeSec: number;
 };
 
@@ -168,7 +177,15 @@ function assessFreshness(
   const missingAfterSec = param(config, "missing_after_sec");
 
   const state: Record<string, ChannelState> = {};
+  const projectedInputs: string[] = [];
   let oldestAgeSec = 0;
+
+  // Channels the caller has imputed rather than measured.
+  const projected = new Set<string>([
+    ...(vitals.projectedChannels ?? []),
+    ...(env.projectedChannels ?? []),
+    ...(pos.projectedChannels ?? []),
+  ]);
 
   const inspect = (
     key: string,
@@ -188,6 +205,25 @@ function assessFreshness(
       state[key] = "missing";
       return;
     }
+
+    /*
+      A projected channel is marked as such REGARDLESS of its age.
+
+      The caller supplies the imputed value alongside the ORIGINAL measurement
+      time, so the age shown stays truthful — it really has been that long since
+      anyone measured this. What changes is that the value is usable instead of
+      being scored at worst case, and that every surface downstream can tell the
+      difference between a reading and an estimate.
+
+      The projection module refuses once its horizon passes, so a channel that
+      has been dark too long will simply not appear here and falls back to
+      missing on the line above.
+    */
+    if (projected.has(key)) {
+      state[key] = "projected";
+      return;
+    }
+
     if (typeof ts !== "number" || !Number.isFinite(ts)) {
       // A value with no reported age cannot be aged, so it cannot be trusted.
       state[key] = "missing";
@@ -247,9 +283,10 @@ function assessFreshness(
   ]) {
     if (state[key] === "stale") stale.push(key);
     else if (state[key] === "missing") missing.push(key);
+    else if (state[key] === "projected") projectedInputs.push(key);
   }
 
-  return { state, stale, missing, oldestAgeSec };
+  return { state, stale, missing, projected: projectedInputs, oldestAgeSec };
 }
 
 /**
@@ -972,8 +1009,19 @@ function deriveConfidence(
     `assessRisk — removing an input is never rewarded` exists to protect: a
     channel can move from stale to missing, but it can never leave the tally.
   */
-  const degradedChannels = freshness.stale.length + freshness.missing.length;
+  const degradedChannels =
+    freshness.stale.length + freshness.missing.length + freshness.projected.length;
   if (degradedChannels >= 2) confidence = degradeConfidence(confidence, 1);
+
+  /*
+    An estimate is weaker evidence than a measurement, always.
+
+    A projected channel is usable — that is the point of projecting it — but a
+    picture built partly on imputed values may not be presented with full
+    confidence, and the same reasoning already applies to an estimated core
+    temperature a few lines below.
+  */
+  if (freshness.projected.length > 0) confidence = degradeConfidence(confidence, 1);
 
   if (vitals.coreTempIsEstimated === true) {
     // An estimate is never grounds for full confidence.
@@ -1112,8 +1160,22 @@ export function assessRisk(
   const criticalMissing = freshness.missing.some((k) => critical.includes(k));
 
   let band = bandFromScore(roundedScore, config);
-  // Missing critical vitals, or low confidence, can never read as SAFE.
-  if (criticalMissing || confidence === "low") {
+
+  /*
+    A critical channel that was PROJECTED rather than measured cannot read SAFE
+    either.
+
+    Projection exists so a dropout stops being scored at worst case, not so it
+    can be used to clear someone. Declaring a firefighter safe on the strength
+    of an imputed heart rate would be exactly the failure the projection module
+    is written to avoid — and it would be worse than the old worst-case
+    behaviour, because it looks like knowledge.
+  */
+  const criticalProjected = freshness.projected.some((k) => critical.includes(k));
+
+  // Missing critical vitals, a projected critical vital, or low confidence can
+  // never read as SAFE.
+  if (criticalMissing || criticalProjected || confidence === "low") {
     band = maxBand(band, "UNKNOWN");
   }
   if (hardOverride) band = "CRITICAL";
@@ -1132,6 +1194,7 @@ export function assessRisk(
     confidence,
     staleInputs: [...freshness.stale],
     missingInputs: [...freshness.missing],
+    projectedInputs: [...freshness.projected],
     oldestReadingAgeSec: Math.round(freshness.oldestAgeSec),
     note: dataQualityNote(freshness, confidence),
   };
