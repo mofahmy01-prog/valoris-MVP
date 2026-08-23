@@ -131,6 +131,12 @@ npm run seed
 npm run dev
 ```
 
+Real incident data is fetched reproducibly rather than by hand:
+
+```bash
+npx tsx scripts/fetch-historical.ts --incident palisades-2025 --verify
+```
+
 ## API
 
 ```

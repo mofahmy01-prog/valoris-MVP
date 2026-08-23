@@ -26,6 +26,24 @@ automaton front over this same perimeter.
 | Licence | Public domain (US federal interagency data) |
 | Transformation | None. Stored exactly as returned. |
 
+## Refreshing this data
+
+```bash
+npx tsx scripts/fetch-historical.ts --incident palisades-2025 --verify
+```
+
+`--verify` compares the files on disk against `MANIFEST.json`, which records the
+exact endpoint, query, retrieval time and a SHA-256 of each file. Drift is
+therefore detectable rather than invisible — an assessment is only reproducible
+if the data it was computed against has not changed underneath it.
+
+Fetching without `--force` refuses to overwrite existing data, for the same
+reason.
+
+The files here were originally retrieved by hand. Re-fetching them through the
+script produced **byte-identical output**, which validates both the script and
+the original retrieval.
+
 ## Incident record
 
 `incident-metadata.json` is the unmodified attribute response for the same

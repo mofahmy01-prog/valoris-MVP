@@ -1,0 +1,26 @@
+{
+  "incident": "palisades-2025",
+  "description": "Palisades Fire, Los Angeles, January 2025 (~23,448 acres)",
+  "retrievedAtUtc": "2026-08-23T23:15:13.186Z",
+  "source": {
+    "service": "NIFC / WFIGS Interagency Perimeters (ArcGIS FeatureServer)",
+    "endpoint": "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters/FeatureServer/0/query",
+    "where": "poly_IncidentName='Palisades' AND poly_GISAcres>20000",
+    "licence": "Public domain (US federal interagency data)"
+  },
+  "queries": {
+    "perimeters.geojson": "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters/FeatureServer/0/query?where=poly_IncidentName%3D%27Palisades%27+AND+poly_GISAcres%3E20000&returnGeometry=true&outSR=4326&f=geojson",
+    "incident-metadata.json": "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Interagency_Perimeters/FeatureServer/0/query?where=poly_IncidentName%3D%27Palisades%27+AND+poly_GISAcres%3E20000&outFields=*&returnGeometry=false&f=json"
+  },
+  "files": {
+    "perimeters.geojson": {
+      "bytes": 386413,
+      "sha256": "9e96a7764453e05ddaa4fb189e9d9fea1351787d58b8973129dd9abfaf9bdbba"
+    },
+    "incident-metadata.json": {
+      "bytes": 23741,
+      "sha256": "3f2c5a3333ee99e456eeb1f45aa40c8877f47f1a4c2ad3dbc0104c762173efa9"
+    }
+  },
+  "notice": "Tier A — real measured environmental data, stored exactly as returned. No transformation applied. Verify with --verify before trusting an assessment computed against it."
+}
