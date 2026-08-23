@@ -14,6 +14,7 @@
 
 import { prisma } from "@/lib/db/client";
 import { appendAuditEvent } from "@/lib/db/audit";
+import { applyProjections } from "@/lib/projection/from-observations";
 import { persistRecommendations } from "@/lib/recommend/persist";
 import { notFound, ok, parseJsonBody } from "@/lib/api/respond";
 import { postObservationsSchema } from "@/lib/api/schemas";
@@ -47,6 +48,22 @@ import {
 export const dynamic = "force-dynamic";
 
 const SPO2_HISTORY_TICKS = 3;
+
+/**
+ * How far back to load observations, and a hard cap on how many.
+ *
+ * Loaded by TIME rather than by row count. A frozen sensor keeps writing every
+ * tick, so a fixed "last N rows" window lets the dead channel evict its own
+ * measured history — after enough ticks the only readings left are the frozen
+ * ones, the projection runs out of samples, and the feature quietly stops
+ * working exactly when it has been needed longest.
+ *
+ * The window covers the projection history window plus the horizon, with margin.
+ * The count cap only exists so a pathologically fast feed cannot load unbounded
+ * rows; it is deliberately far above what the time window needs.
+ */
+const HISTORY_WINDOW_SEC = 600;
+const HISTORY_ROW_CAP = 400;
 
 type Channel = { value: number | null; updatedAtUtc?: Date | null } | undefined;
 
@@ -417,9 +434,12 @@ export async function POST(
     // band for transition detection.
     const [history, previous] = await Promise.all([
       prisma.observation.findMany({
-        where: { deploymentId: deployment.id },
+        where: {
+          deploymentId: deployment.id,
+          recordedAtUtc: { gte: new Date(recordedAt.getTime() - HISTORY_WINDOW_SEC * 1000) },
+        },
         orderBy: { recordedAtUtc: "desc" },
-        take: SPO2_HISTORY_TICKS,
+        take: HISTORY_ROW_CAP,
       }),
       prisma.riskAssessmentRecord.findFirst({
         where: { deploymentId: deployment.id },
@@ -428,7 +448,7 @@ export async function POST(
     ]);
 
     const recentSpo2Pct = history
-      .slice()
+      .slice(0, SPO2_HISTORY_TICKS)
       .reverse()
       .map((row) => row.spo2Pct)
       .filter((v): v is number => v !== null);
@@ -437,11 +457,30 @@ export async function POST(
     // stored snapshot and the scored value cannot diverge.
     const scoredProfile = toHealthProfile(deployment.firefighter);
 
-    const assessment = assessRisk(
-      scoredProfile,
+    /*
+      Estimate any channel that has gone dark, from this firefighter's OWN
+      recent measured readings, before scoring.
+
+      An estimate may only ever move in the dangerous direction, and the
+      projection engine refuses far more often than it accepts — thin history,
+      an exceeded horizon, or readings that disagree on direction all fall back
+      to worst case. What it buys is that a dropped sensor stops being
+      indistinguishable from a deteriorating firefighter.
+    */
+    const projected = applyProjections(
       toVitals(observation, recentSpo2Pct),
       toEnvironment(observation),
       toPosition(observation),
+      history,
+      recordedAt.getTime(),
+      DEFAULT_RISK_CONFIG,
+    );
+
+    const assessment = assessRisk(
+      scoredProfile,
+      projected.vitals,
+      projected.environment,
+      projected.position,
       DEFAULT_RISK_CONFIG,
       recordedAt.getTime(),
     );
@@ -465,6 +504,7 @@ export async function POST(
         confidence: assessment.dataQuality.confidence,
         staleInputsJson: JSON.stringify(assessment.dataQuality.staleInputs),
         missingInputsJson: JSON.stringify(assessment.dataQuality.missingInputs),
+        projectedInputsJson: JSON.stringify(assessment.dataQuality.projectedInputs),
         oldestReadingAgeSec: assessment.dataQuality.oldestReadingAgeSec,
         dataQualityNote: assessment.dataQuality.note,
         modelVersion: assessment.modelVersion,
@@ -496,6 +536,16 @@ export async function POST(
         confidence: assessment.dataQuality.confidence,
         staleInputs: assessment.dataQuality.staleInputs,
         missingInputs: assessment.dataQuality.missingInputs,
+        projectedInputs: assessment.dataQuality.projectedInputs,
+        projections: projected.applied.map((p) => ({
+          channel: p.channel,
+          value: p.value,
+          lastMeasured: p.lastMeasured,
+          darkForSec: p.darkForSec,
+          slopePerMin: Math.round(p.slopePerMin * 100) / 100,
+          samples: p.samples,
+          note: p.note,
+        })),
         modelVersion: assessment.modelVersion,
         configHash: assessment.configHash,
         physiology: {

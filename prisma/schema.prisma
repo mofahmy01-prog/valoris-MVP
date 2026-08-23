@@ -286,6 +286,9 @@ model RiskAssessmentRecord {
   confidence          String // high | medium | low
   staleInputsJson     String // JSON string[]
   missingInputsJson   String // JSON string[]
+  /// Channels whose value was IMPUTED rather than measured, at the moment this
+  /// assessment was made. Never a reading. See lib/projection/.
+  projectedInputsJson String @default("[]") // JSON string[]
   oldestReadingAgeSec Int
   dataQualityNote     String
 

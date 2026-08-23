@@ -164,7 +164,7 @@ Limitations that follow:
 15. **Condition count, not severity.** Four mild conditions score the same as one
     severe one.
 
-## Sensor dropout projection — engine support built, not yet fed
+## Sensor dropout projection — LIVE
 
 Today a channel that stops reporting is scored as **worst case**. That is safe
 but uninformative, and it is the cause of limitations 6 and 8 above.
@@ -214,12 +214,26 @@ dropout stops being worst-cased, not so it can be used to clear anyone. The
 reported age stays truthful, because the caller supplies the imputed value
 alongside the ORIGINAL measurement time.
 
-**What is still missing is the feed.** Nothing in the live ingestion path builds
-a channel history, calls `projectChannel`, or populates `projectedChannels`. So
-in practice dropouts still behave as limitations 6 and 8 describe. The remaining
-work is reading each firefighter's recent measured readings out of the
-append-only `Observation` table and passing the result into `assessRisk` — no
-further engine change is needed.
+**The feed is wired.** `lib/projection/from-observations.ts` reads each
+firefighter's recent MEASURED readings out of the append-only `Observation`
+table and hands the result to `assessRisk`. Verified on a live run: a heart-rate
+sensor killed mid-incident produced 30 consecutive assessments carrying
+`projectedInputs: ["hrBpm"]` instead of scoring the channel at worst case, with
+the band held at `UNKNOWN` throughout rather than `SAFE`.
+
+Two things were found only by running it, and both are fixed:
+
+- A dead sensor usually keeps transmitting its last reading, so the value is
+  present and the TIMESTAMP is what stops moving. Treating only a `null` as dark
+  missed the exact failure this was built for.
+- History was loaded as "the last N rows", which let a frozen sensor writing
+  every tick EVICT its own measured history — the projection would run out of
+  samples and quietly stop working precisely when it had been needed longest.
+  History is now bounded by time, not row count.
+
+Limitations 6 and 8 still describe what happens when projection REFUSES, which
+is often: thin history, an exceeded horizon, or readings that disagree on
+direction all fall back to worst case.
 
 ## Database guards are fragile under migration
 
