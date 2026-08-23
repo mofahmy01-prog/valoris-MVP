@@ -10,6 +10,8 @@
  * sensor feed would.
  */
 
+import { SyntheticArtefactModel, type NoiseProfileName } from "@/lib/sensors/noise/engine";
+
 import {
   advance,
   atmosphereFor,
@@ -56,6 +58,16 @@ type Runtime = {
   state: SimState;
   timer: ReturnType<typeof setInterval> | null;
   baseUrl: string;
+  /**
+   * Sensor artefacts applied over the clean synthetic feed.
+   *
+   * Tier C, and it says so — this is invented texture, not WESAD/PAMAP2 signal
+   * characteristics. Its purpose is that a clean feed never exercises dropout
+   * projection, staleness or confidence degradation; hardware that only fails
+   * when someone clicks a button is not hardware.
+   */
+  noise: SyntheticArtefactModel;
+  noiseProfile: NoiseProfileName;
 };
 
 const globalForSim = globalThis as unknown as { valorisSim?: Runtime };
@@ -66,6 +78,9 @@ function runtime(): Runtime {
       state: initialSimState(),
       timer: null,
       baseUrl: "http://localhost:3000",
+      // Default to clean, so existing behaviour is unchanged until asked for.
+      noise: new SyntheticArtefactModel("clean"),
+      noiseProfile: "clean",
     };
   }
   return globalForSim.valorisSim;
@@ -98,6 +113,41 @@ async function postTick(rt: Runtime): Promise<void> {
   const observations = CALLSIGNS.map((callsign) => {
     const f = state.firefighters[callsign];
     const air = atmosphereFor(state, f);
+
+    /*
+      Apply sensor artefacts over the clean value.
+
+      A killed channel still wins: an operator who deliberately kills a sensor
+      must see it stay dead, not be quietly resurrected by a noise model that
+      happened to draw "normal" this tick.
+    */
+    const noisyChannel = (
+      channelName: string,
+      clean: number,
+      isKilled: boolean,
+    ): { value: number; updatedAtUtc: string } => {
+      // A deliberately killed channel stays killed.
+      if (isKilled) return channel(clean, true, nowIso, frozenIso);
+
+      const reading = rt.noise.apply(clean, {
+        callsign,
+        channel: channelName,
+        tick: state.tick,
+        nowMs: now.getTime(),
+      });
+
+      // A dropout reports nothing. The observation schema wants a number, so a
+      // dropped channel is expressed as a value that is already too old to
+      // trust — which is exactly what the engine will conclude anyway.
+      if (reading.value === null) {
+        return channel(clean, true, nowIso, frozenIso);
+      }
+
+      return {
+        value: Math.round(reading.value * 10) / 10,
+        updatedAtUtc: new Date(reading.measuredAtMs).toISOString(),
+      };
+    };
     const { lat, lng } = toLatLng(f.eastM, f.northM);
     const killed = (c: KillableChannel): boolean => f.killedChannels.includes(c);
 
@@ -106,9 +156,9 @@ async function postTick(rt: Runtime): Promise<void> {
       recordedAtUtc: nowIso,
       source: "simulated_wearable" as const,
       vitals: {
-        hrBpm: channel(f.hrBpm, killed("hrBpm"), nowIso, frozenIso),
-        spo2Pct: channel(f.spo2Pct, killed("spo2Pct"), nowIso, frozenIso),
-        respRatePerMin: channel(f.respRatePerMin, false, nowIso, frozenIso),
+        hrBpm: noisyChannel("hrBpm", f.hrBpm, killed("hrBpm")),
+        spo2Pct: noisyChannel("spo2Pct", f.spo2Pct, killed("spo2Pct")),
+        respRatePerMin: noisyChannel("respRatePerMin", f.respRatePerMin, false),
         hydrationPct: channel(f.hydrationPct, false, nowIso, frozenIso),
         fallDetected: false,
         // BRAVO-1 is the only firefighter wearing a CGM. The value goes through
@@ -128,7 +178,7 @@ async function postTick(rt: Runtime): Promise<void> {
       environment: {
         ambientTempC: channel(air.ambientTempC, false, nowIso, frozenIso),
         humidityPct: channel(air.humidityPct, false, nowIso, frozenIso),
-        coPpm: channel(air.coPpm, killed("coPpm"), nowIso, frozenIso),
+        coPpm: noisyChannel("coPpm", air.coPpm, killed("coPpm")),
         windSpeedMs: channel(state.windSpeedMs, false, nowIso, frozenIso),
         windDirDeg: channel(state.windDirDeg, false, nowIso, frozenIso),
         // PM2.5 arrives as a raw two-channel PurpleAir reading and is corrected
@@ -255,6 +305,23 @@ export async function simReset(baseUrl: string): Promise<SimState> {
     }).catch(() => undefined);
   }
   return rt.state;
+}
+
+/**
+ * Choose how badly the sensors misbehave.
+ *
+ * Rebuilds the model so any in-progress flatlines are cleared — otherwise
+ * switching to `clean` would leave channels stuck and the label would be a lie.
+ */
+export function simNoiseProfile(profile: NoiseProfileName): SimState {
+  const rt = runtime();
+  rt.noise = new SyntheticArtefactModel(profile);
+  rt.noiseProfile = profile;
+  return rt.state;
+}
+
+export function simNoiseProfileName(): NoiseProfileName {
+  return runtime().noiseProfile;
 }
 
 export function simSpeed(speed: number): SimState {

@@ -142,7 +142,7 @@ sequence:
 | 3d-prime | Kalman core temp, citations, confidence effect, SCBA unification | **Done** |
 | 3d | PurpleAir EPA correction | **Done** |
 | 3e | Dexcom sandbox behind a vendor-agnostic `CgmAdapter` | **Done** |
-| 3f | Tier B noise models | Not started — Tier B is still unused and nothing claims it |
+| 3f | Tier B noise models | **Seam built, Tier B still unused.** `lib/sensors/noise/` applies synthetic sensor artefacts (Tier C, invented coefficients) behind the interface a real Tier B model would implement. `TierBWearableNoiseModel` refuses rather than degrading, because WESAD/PAMAP2 are still not downloaded. Nothing claims Tier B. |
 | 3g | Tier A fixture loader + `scripts/fetch-historical.ts` | **Partial** — real NIFC perimeter and incident record are loaded from `data/historical/palisades-2025/`, but no fetch script exists; the data was retrieved by hand |
 | 3h | Five live scenarios + injection controls | **Partial** — wind shift, sensor kill and sensor restore exist on `/live`; the five named scenarios do not |
 | 3i | Palisades replay | **Done differently** — delivered as the scrubbable commander view rather than a scripted replay |

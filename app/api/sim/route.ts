@@ -13,6 +13,8 @@ import { z } from "zod";
 import {
   simInjectWindShift,
   simKillSensor,
+  simNoiseProfile,
+  simNoiseProfileName,
   simPause,
   simReset,
   simRestoreSensors,
@@ -25,9 +27,11 @@ import { CALLSIGNS, KILLABLE_CHANNELS } from "@/lib/sim/simulator";
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
-  action: z.enum(["start", "pause", "reset", "speed", "inject"]),
+  action: z.enum(["start", "pause", "reset", "speed", "inject", "noise"]),
   speed: z.number().optional(),
   inject: z.enum(["wind_shift", "kill_sensor", "restore_sensors"]).optional(),
+  /** How badly the sensors misbehave. Tier C texture, never Tier B. */
+  noiseProfile: z.enum(["clean", "typical", "degraded"]).optional(),
   callsign: z.enum(CALLSIGNS as [string, ...string[]]).optional(),
   channel: z.enum(KILLABLE_CHANNELS as unknown as [string, ...string[]]).optional(),
 });
@@ -49,6 +53,11 @@ function summarise() {
     windDirDeg: s.windDirDeg,
     windSpeedMs: Math.round(s.windSpeedMs * 10) / 10,
     lastError: s.lastError,
+    /**
+     * Sensor artefact profile in force. Tier C texture — invented, and never
+     * WESAD/PAMAP2 signal characteristics.
+     */
+    noiseProfile: simNoiseProfileName(),
     killed: Object.values(s.firefighters)
       .filter((f) => f.killedChannels.length > 0)
       .map((f) => ({ callsign: f.callsign, channels: f.killedChannels })),
@@ -75,7 +84,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { action, speed, inject, callsign, channel } = parsed.data;
+  const { action, speed, inject, callsign, channel, noiseProfile } = parsed.data;
 
   switch (action) {
     case "start":
@@ -86,6 +95,9 @@ export async function POST(request: Request) {
       break;
     case "reset":
       await simReset(baseUrlFrom(request));
+      break;
+    case "noise":
+      if (noiseProfile !== undefined) simNoiseProfile(noiseProfile);
       break;
     case "speed":
       simSpeed(speed ?? 1);

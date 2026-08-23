@@ -62,7 +62,7 @@ Built:
   field names, `Observation`, `AuditEvent` and `IncidentOutcome` append-only
   **enforced by SQLite triggers**
 - Twenty-one API routes under `/app/api`, every body Zod-validated
-- 327 tests, including 28 fast-check properties
+- 337 tests, including 28 fast-check properties
 
 Two front ends:
 
@@ -337,6 +337,45 @@ the incident record and still reported; it is just not the end of the scrub.
 Twelve-hour horizon, fifteen-minute resolution. **No projection is offered from
 an `UNKNOWN` state** — if the engine does not currently know where someone
 stands, projecting forward would dress a gap up as foresight.
+
+## Sensor artefacts — making the feed fail like hardware
+
+A clean synthetic feed never exercises the machinery that matters. Dropout
+projection, staleness, confidence degradation and the never-`SAFE` rules only
+engage when sensors behave badly, and until now sensors only behaved badly when
+someone clicked a button.
+
+`lib/sensors/noise/` models how monitoring hardware actually fails:
+
+| | |
+|---|---|
+| **flatline** | the device keeps transmitting its last reading — the value looks plausible, only the timestamp stops moving |
+| **dropout** | the channel reports nothing |
+| **spike** | one implausible reading, then normal service |
+| **artefact** | a burst of noise from movement or poor contact |
+| **wander** | slow baseline drift, as from a slipping strap |
+
+Flatline is listed first because it is the dangerous one: nothing that checks for
+nulls will notice it, and it is exactly what defeated the first version of the
+projection feed.
+
+Deterministic — seeded from firefighter, channel and tick, with a test asserting
+no `Math.random` in the module, so an incident replays identically.
+
+```bash
+curl -X POST localhost:3000/api/sim -d '{"action":"noise","noiseProfile":"degraded"}'
+```
+
+Measured on a 70-second degraded run with nobody intervening: 228 assessments,
+14 carrying projected inputs, 31 at low confidence, 28 reading `UNKNOWN`, and
+the system raising `check_sensor` and `insufficient_data` on its own.
+
+> **This is not Tier B.** Tier B means texture derived from real wearable
+> recordings — WESAD, PAMAP2, PhysioNet. Those are not downloaded and their
+> citations are not obtained, so every coefficient here is invented and this
+> stays Tier C. `TierBWearableNoiseModel` exists as the seam a real model would
+> implement, and **refuses** rather than silently falling back — a stub that
+> degrades quietly teaches callers the real thing is present when it is not.
 
 ## Post-incident report
 

@@ -128,7 +128,7 @@ export const PROVENANCE: {
     source: "valoris_simulated_wearable",
     isSimulated: true,
     modelRef:
-      "Synthetic sensor stream. No Tier B noise model applied — none has been built.",
+      "Synthetic sensor stream. Synthetic sensor artefacts may be applied (dropout, flatline, spike, motion artefact) — these are INVENTED, not WESAD/PAMAP2 texture, so this remains Tier C. No Tier B noise model has been built.",
   },
   simulatedPosition: {
     dataTier: "C_SYNTHETIC_MODEL_DRIVEN",
