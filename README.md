@@ -475,6 +475,16 @@ knew at the time.
 
 Two rules, both tested:
 
+Outcomes are recorded **on the report page itself**, where the gaps are visible.
+Nothing is pre-selected: a form defaulting to `nothing` would collect `nothing`
+for anyone the recorder scrolled past, and those false negatives would be
+indistinguishable from real ones forever after. `Not known` is offered as a
+first-class answer rather than a failure to answer, and the intervention question
+is asked separately and left unanswered by default, because it decides whether
+the observation is censored for calibration. The form disappears once every
+outcome is in — outcomes are append-only, so amendment is a documented process
+rather than an edit.
+
 **An absence is never a finding.** A firefighter with no recorded outcome reads
 `NOT RECORDED`, never `nothing`. The completeness block states how much of the
 report is missing before anything else is presented.

@@ -15,6 +15,8 @@
 import { prisma } from "@/lib/db/client";
 import { buildIncidentReport } from "@/lib/report/incident-report";
 
+import { OutcomeForm } from "./OutcomeForm";
+
 export const dynamic = "force-dynamic";
 
 const BAND_CLASS: Record<string, string> = {
@@ -105,6 +107,20 @@ export default async function ReportPage({
           {report.completeness.deployments} outcomes recorded
         </h2>
         <p className="mt-2 text-sm text-slate-300">{report.completeness.note}</p>
+
+        {/*
+          The form appears only where there is something outstanding. Offering
+          it on a complete report would invite an amendment, and outcomes are
+          append-only precisely so that cannot happen casually.
+        */}
+        {!report.completeness.complete && (
+          <OutcomeForm
+            incidentId={report.incident.id}
+            callsigns={report.firefighters
+              .filter((f) => !f.outcome.recorded)
+              .map((f) => f.callsign)}
+          />
+        )}
       </section>
 
       <section className="mt-6 rounded border border-slate-700 p-4">
