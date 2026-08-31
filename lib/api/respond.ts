@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-/** Banner every API response carries, so no consumer can miss it. */
-export const SIMULATION_NOTICE = "SIMULATION MODE — NOT FOR OPERATIONAL USE";
+/**
+ * Banner every API response carries, so no consumer can miss it.
+ *
+ * The access-control half is not a formality. This build has NO authentication:
+ * no middleware, no sessions, no route protection, and no organisation scoping
+ * on any query. Anyone who can reach the process can read every firefighter's
+ * medical conditions and write outcomes under any name they choose, because
+ * `recordedBy` is a self-declared string that nothing verifies.
+ *
+ * It is stated on every response rather than only in a document, because the
+ * consumer most likely to forget is a future integration that never read one.
+ */
+export const SIMULATION_NOTICE =
+  "SIMULATION MODE — NOT FOR OPERATIONAL USE. UNAUTHENTICATED: this build has no access control, no tenancy isolation, and no verified identity behind any actor label.";
 
 export type ApiErrorBody = {
   error: string;

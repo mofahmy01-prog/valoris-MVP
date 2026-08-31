@@ -4,6 +4,61 @@
 
 An honest list. Current as of the operational build.
 
+## No access control at all — read this first
+
+**There is no authentication anywhere in this build.** No middleware, no
+sessions, no route protection. Anyone who can reach the process can read every
+firefighter's age, fitness, medical conditions and physiological history.
+
+**There is no tenancy isolation.** `organisationId` is recorded but no query
+filters on it. Every read is scoped by incident id alone, so one organisation's
+data is reachable from another's session — if there were sessions.
+
+**Attribution is forgeable.** `recordedBy` on an outcome, and `actorLabel`
+everywhere else, are self-declared strings that nothing verifies. The system
+states that an unattributed outcome is not evidence; an outcome attributed to a
+name anybody could type is not much better, and the audit log inherits the same
+weakness.
+
+Why this is listed above everything else: the rest of this document describes
+ways the model might be wrong. This describes a way the data could be read by
+people who should never see it, and it is the single largest gap between the
+current build and anything that could touch a real firefighter.
+
+**Nothing here is a small fix.** Authentication done badly is worse than none,
+because it produces the appearance of control. It needs a real design — identity
+provider, roles, what a commander may see versus what an occupational physician
+may see, and session handling — and that design is a pilot-readiness item, not a
+sprint task.
+
+## Erasure and the append-only log contradict each other
+
+`TIER_D_PRECONDITIONS` requires "a retention and deletion schedule, with deletion
+actually implemented". Six SQLite triggers make deletion physically impossible on
+`Observation`, `AuditEvent` and `IncidentOutcome`.
+
+Both are correct in isolation and they cannot both hold. An audit log that can be
+edited is not evidence; a health record that cannot be erased fails a data
+subject's right to erasure. **This conflict was written into the codebase by the
+author of both halves and has not been resolved.**
+
+The resolution is a design decision nobody has taken. The obvious candidates each
+cost something:
+
+- **Crypto-shredding.** Store identifiable fields encrypted per subject and
+  destroy the key on request. The rows survive for audit; the person becomes
+  unidentifiable. Costs: key management, and the analytic value of the record
+  largely goes with the key.
+- **Pseudonymisation at write time.** Never store an identifier next to
+  physiology; keep the mapping in a separate erasable store. Costs: the mapping
+  store becomes the thing that must never leak.
+- **Tiered retention.** Erase the identifiable layer on schedule, keep aggregate
+  or de-identified derivatives. Costs: someone must prove the derivatives cannot
+  be re-identified, which is harder than it sounds with six firefighters.
+
+**Until this is decided, no real firefighter data may enter the system**, because
+the promise made at consent could not be honoured afterwards.
+
 ## Not built yet
 
 **Recommendation generation.** The action routes exist and enforce the reason

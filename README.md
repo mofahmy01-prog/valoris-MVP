@@ -12,6 +12,24 @@ conditions should produce *different* risk scores, because one is 28 and fit and
 the other is 54 with asthma and hypertension. Generic thresholds are what already
 exists, and what fails people.
 
+## No access control — read this before anything else
+
+**This build has no authentication.** No middleware, no sessions, no route
+protection, and no query filters on organisation. Anyone who can reach the
+process can read every firefighter's medical conditions, and `recordedBy` is a
+self-declared string that nothing verifies — so attribution is forgeable and the
+audit log inherits that weakness.
+
+That is the largest gap between this and anything that could touch a real
+firefighter, and it is not a small fix: authentication done badly is worse than
+none, because it manufactures the appearance of control.
+
+There is also an unresolved contradiction: the Tier D preconditions require
+deletion to be implemented, while six database triggers make deletion
+impossible. Erasure versus an append-only audit log is a real conflict and
+**nobody has decided how to resolve it** — see
+[docs/KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+
 ## What Valoris does not do: model fire behaviour
 
 Fire spread modelling is solved. FARSITE, Phoenix RapidFire and satellite
