@@ -104,6 +104,25 @@ export function DemoClient() {
         </span>
       </div>
 
+      {/*
+        What the scenario is testing, shown before it runs. A scenario whose
+        purpose has to be explained verbally is not reproducible in any useful
+        sense.
+      */}
+      {status?.scenario !== null && status?.scenario !== undefined && (
+        <div
+          className="px-4 py-2 text-xs"
+          style={{ background: COLOURS.panel, borderBottom: `1px solid ${COLOURS.border}`, color: COLOURS.muted }}
+        >
+          <span style={{ color: COLOURS.text, fontWeight: 700 }}>
+            {status.scenario.title}
+          </span>
+          {status.scenario.expect.map((e, i) => (
+            <span key={i}> · {e}</span>
+          ))}
+        </div>
+      )}
+
       {status?.lastError !== null && status?.lastError !== undefined && (
         <div className="px-4 py-1 text-xs" style={{ background: "#2A0A10", color: BAND_COLOUR.CRITICAL }}>
           simulator error: {status.lastError}
@@ -219,6 +238,41 @@ export function DemoClient() {
         >
           WIND SHIFT
         </button>
+
+        {/*
+          Scenarios and sensor artefacts were API-only, which meant two built
+          features were unreachable without curl. Loading a scenario resets the
+          incident, so it is labelled rather than silent.
+        */}
+        <select
+          className="rounded px-2 py-2 text-xs font-semibold"
+          style={{ background: COLOURS.panel, border: `1px solid ${COLOURS.border}`, color: COLOURS.text }}
+          value={status?.scenario?.key ?? ""}
+          onChange={(e) => {
+            if (e.target.value === "") return;
+            void act({ action: "scenario", scenario: e.target.value });
+          }}
+          title="Loading a scenario RESETS the incident to its starting conditions"
+        >
+          <option value="">SCENARIO…</option>
+          <option value="baseline">baseline — the control</option>
+          <option value="wind_shift">wind shift</option>
+          <option value="glucose_fall">glucose fall</option>
+          <option value="asthmatic_in_plume">asthmatic in plume</option>
+          <option value="sensor_dropout">sensor dropout</option>
+        </select>
+
+        <select
+          className="rounded px-2 py-2 text-xs font-semibold"
+          style={{ background: COLOURS.panel, border: `1px solid ${COLOURS.border}`, color: COLOURS.text }}
+          value={status?.noiseProfile ?? "clean"}
+          onChange={(e) => void act({ action: "noise", noiseProfile: e.target.value })}
+          title="Synthetic sensor artefacts — Tier C, invented, never WESAD/PAMAP2 texture"
+        >
+          <option value="clean">SENSORS: clean</option>
+          <option value="typical">SENSORS: typical</option>
+          <option value="degraded">SENSORS: degraded</option>
+        </select>
 
         <div className="relative">
           <button

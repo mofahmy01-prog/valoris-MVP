@@ -110,4 +110,8 @@ export type SimStatus = {
   windSpeedMs?: number;
   lastError: string | null;
   killed: Array<{ callsign: string; channels: string[] }>;
+  /** Sensor artefact profile in force. Tier C texture, never Tier B. */
+  noiseProfile?: "clean" | "typical" | "degraded";
+  /** The named scenario driving this run, if any. */
+  scenario?: { key: string; title: string; expect: string[] } | null;
 };
