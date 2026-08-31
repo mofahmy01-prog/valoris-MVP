@@ -12,17 +12,32 @@ conditions should produce *different* risk scores, because one is 28 and fit and
 the other is 54 with asthma and hypertension. Generic thresholds are what already
 exists, and what fails people.
 
-## No access control — read this before anything else
+## Access control
 
-**This build has no authentication.** No middleware, no sessions, no route
-protection, and no query filters on organisation. Anyone who can reach the
-process can read every firefighter's medical conditions, and `recordedBy` is a
-self-declared string that nothing verifies — so attribution is forgeable and the
-audit log inherits that weakness.
+**Closed by default.** An unconfigured deployment refuses every request:
+forgetting to configure identity means nothing works, not that everything is
+visible.
 
-That is the largest gap between this and anything that could touch a real
-firefighter, and it is not a small fix: authentication done badly is worse than
-none, because it manufactures the appearance of control.
+```bash
+VALORIS_AUTH=dev npm run dev
+```
+
+Roles separate what running an incident requires from clinical detail. A
+**commander** holds `OPERATIONAL_PICTURE` and deliberately does **not** hold
+`MEDICAL_DETAIL` — they need to know someone is in trouble, not their diagnosis.
+A **clinician** holds both. An **administrator** configures thresholds and reads
+no individual physiology. Tenancy is checked separately from permission, and a
+cross-organisation read returns `404` rather than `403`, because confirming an
+incident exists but belongs to someone else is itself a disclosure.
+
+Verified against the running server: no session `401`, commander `200`, observer
+`403`, and a cookie with an edited role `401`.
+
+**The gap that remains is a real identity provider.** `DevIdentityProvider` has
+no password, no expiry and no revocation. Sessions are signed so a holder cannot
+escalate their own role, but a signed cookie is not an authentication system. A
+deployment needs agency SSO, and the unconfigured provider refuses rather than
+falling back to the development one.
 
 There is also an unresolved contradiction: the Tier D preconditions require
 deletion to be implemented, while six database triggers make deletion

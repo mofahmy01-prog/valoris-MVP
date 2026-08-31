@@ -8,6 +8,7 @@
  * SIMULATION MODE — NOT FOR OPERATIONAL USE.
  */
 
+import { requirePermission, requireSameOrganisation } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { notFound, ok } from "@/lib/api/respond";
 import { buildIncidentReport } from "@/lib/report/incident-report";
@@ -16,11 +17,17 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
+
+  const auth = await requirePermission(request, "OPERATIONAL_PICTURE");
+  if (!auth.ok) return auth.response;
 
   const incident = await prisma.incident.findUnique({ where: { id } });
   if (incident === null) return notFound(`No incident with id ${id}`);
+
+  const wrongOrg = requireSameOrganisation(auth.actor, incident.organisationId, id);
+  if (wrongOrg !== null) return wrongOrg.response;
 
   const [deployments, assessments, recommendations, outcomes] = await Promise.all([
     prisma.deployment.findMany({

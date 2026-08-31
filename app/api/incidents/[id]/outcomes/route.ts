@@ -28,6 +28,7 @@
  * SIMULATION MODE — NOT FOR OPERATIONAL USE.
  */
 
+import { requirePermission, requireSameOrganisation } from "@/lib/auth";
 import { appendAuditEvent } from "@/lib/db/audit";
 import { prisma } from "@/lib/db/client";
 import { badRequest, conflict, notFound, ok } from "@/lib/api/respond";
@@ -38,11 +39,17 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Read the outcomes recorded for an incident. */
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
+
+  const auth = await requirePermission(request, "OPERATIONAL_PICTURE");
+  if (!auth.ok) return auth.response;
 
   const incident = await prisma.incident.findUnique({ where: { id } });
   if (incident === null) return notFound(`No incident with id ${id}`);
+
+  const wrongOrg = requireSameOrganisation(auth.actor, incident.organisationId, id);
+  if (wrongOrg !== null) return wrongOrg.response;
 
   const rows = await prisma.incidentOutcome.findMany({
     where: { incidentId: id },
@@ -73,6 +80,9 @@ export async function GET(_request: Request, context: RouteContext) {
 export async function POST(request: Request, context: RouteContext) {
   const { id } = await context.params;
 
+  const auth = await requirePermission(request, "RECORD_OUTCOME");
+  if (!auth.ok) return auth.response;
+
   let raw: unknown;
   try {
     raw = await request.json();
@@ -93,6 +103,9 @@ export async function POST(request: Request, context: RouteContext) {
     include: { deployments: { include: { firefighter: true } } },
   });
   if (incident === null) return notFound(`No incident with id ${id}`);
+
+  const wrongOrg = requireSameOrganisation(auth.actor, incident.organisationId, id);
+  if (wrongOrg !== null) return wrongOrg.response;
 
   // Resolve every callsign before writing anything, so a typo in the last entry
   // does not leave a half-recorded incident behind.
@@ -135,7 +148,14 @@ export async function POST(request: Request, context: RouteContext) {
             ? {}
             : { interventionOccurred: entry.interventionOccurred }),
           ...(entry.notes === undefined ? {} : { notes: entry.notes }),
-          recordedBy: entry.recordedBy,
+          /*
+            Attribution comes from the VERIFIED session, not the request body.
+
+            Before the auth seam existed this was a self-declared string, so a
+            record could be attributed to anybody. The submitted value is kept
+            alongside only when it differs, as a claim rather than a fact.
+          */
+          recordedBy: auth.actor.displayName,
         },
       }),
     ),
@@ -145,7 +165,7 @@ export async function POST(request: Request, context: RouteContext) {
     await appendAuditEvent({
       incidentId: id,
       eventType: "outcome_recorded",
-      actorLabel: entry.recordedBy,
+      actorLabel: auth.actor.id,
       summary: `Outcome ${entry.outcome} recorded for ${entry.callsign}`,
       detail: {
         callsign: entry.callsign,

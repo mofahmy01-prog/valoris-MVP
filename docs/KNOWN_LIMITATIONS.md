@@ -4,32 +4,37 @@
 
 An honest list. Current as of the operational build.
 
-## No access control at all — read this first
+## Access control — a seam exists, a real provider does not
 
-**There is no authentication anywhere in this build.** No middleware, no
-sessions, no route protection. Anyone who can reach the process can read every
-firefighter's age, fitness, medical conditions and physiological history.
+**There is now authentication, and it is closed by default.** `lib/auth/`
+defines roles, permissions and route guards. An unconfigured deployment refuses
+every request: forgetting to configure identity means nothing works, never that
+everything is visible.
 
-**There is no tenancy isolation.** `organisationId` is recorded but no query
-filters on it. Every read is scoped by incident id alone, so one organisation's
-data is reachable from another's session — if there were sessions.
+**What is NOT here is a production identity provider.** The only working one is
+`DevIdentityProvider`, enabled by `VALORIS_AUTH=dev`, with no password, no
+expiry policy and no revocation. Sessions are HMAC-signed so a holder cannot
+edit their own role or organisation, and there are tests for both forgeries, but
+a signed cookie is not an authentication system. A real deployment needs agency
+SSO, and `UnconfiguredIdentityProvider` refuses rather than falling back.
 
-**Attribution is forgeable.** `recordedBy` on an outcome, and `actorLabel`
-everywhere else, are self-declared strings that nothing verifies. The system
-states that an unattributed outcome is not evidence; an outcome attributed to a
-name anybody could type is not much better, and the audit log inherits the same
-weakness.
+**Roles separate the operational picture from clinical detail.** A commander
+holds `OPERATIONAL_PICTURE` and deliberately does NOT hold `MEDICAL_DETAIL`:
+they need to know a firefighter is in trouble, not their diagnosis. A service
+that decides otherwise grants it explicitly, which leaves a record rather than
+being a default nobody chose.
 
-Why this is listed above everything else: the rest of this document describes
-ways the model might be wrong. This describes a way the data could be read by
-people who should never see it, and it is the single largest gap between the
-current build and anything that could touch a real firefighter.
+**Guards are applied to the routes that expose personal data**, the outcomes
+endpoint and the report, with tenancy checked separately from permission.
+Holding a permission says what KIND of thing you may see; belonging to the
+organisation says WHOSE. A cross-organisation read returns 404 rather than 403,
+because confirming an incident exists but belongs to someone else is itself a
+disclosure.
 
-**Nothing here is a small fix.** Authentication done badly is worse than none,
-because it produces the appearance of control. It needs a real design — identity
-provider, roles, what a commander may see versus what an occupational physician
-may see, and session handling — and that design is a pilot-readiness item, not a
-sprint task.
+**Still outstanding:** the remaining routes are unguarded, the simulator and
+snapshot endpoints included; there is no session expiry or revocation; and
+`actorLabel` on older write paths is still self-declared. Outcome attribution
+now comes from the verified session rather than the request body.
 
 ## Erasure and the append-only log contradict each other
 
