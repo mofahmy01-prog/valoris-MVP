@@ -61,10 +61,21 @@ the promise made at consent could not be honoured afterwards.
 
 ## Not built yet
 
-**Recommendation generation.** The action routes exist and enforce the reason
-rule at three layers, but nothing creates a recommendation. The engine produces
-a band and drivers; turning those into an advisory a commander can accept or
-reject is not built.
+**Authentication, authorisation and tenancy isolation.** See the section above —
+this is the largest gap in the build.
+
+**Verified attribution.** Every actor label in the system is self-declared.
+
+**A resolution to the erasure/append-only conflict.** A design decision, not a
+coding task, and it blocks any real firefighter data.
+
+**The wearable adapter seam is not wired to anything.** `lib/sensors/wearable/`
+defines the interface and a simulated implementation, but no ingestion path
+polls an adapter — the simulator still posts observations directly. Connecting
+them is what "attach a real monitor" will actually mean.
+
+**Scenario and noise controls have no UI.** Both are API-only; `/live` still
+offers only wind shift and sensor kill.
 
 **Post-incident report export.** The report is rendered at `/report/[id]` and
 available as JSON; there is no PDF or archival export format yet.
